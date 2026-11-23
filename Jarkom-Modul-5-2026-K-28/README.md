@@ -19,8 +19,19 @@ Prefix induk yang digunakan adalah `192.225.0.0/21`.
 - Pembagian dilakukan dari kebutuhan IP terbesar ke terkecil.
 - Gateway LAN menggunakan IP usable pertama.
 - Setiap link antar-router membutuhkan 2 IP usable untuk kedua router yang terhubung.
+  
+TOPOLOGINYA:
 
-![Topologi](<Screenshot 2026-11-23 194206.png>)
+<img width="960" height="516" alt="Screenshot 2026-11-23 194206" src="https://github.com/user-attachments/assets/09abe457-296a-4674-b2b1-dd3c9538bc0e" />
+
+LINGKARAN TOPOLOGINYA SESUAI SUBNETTING:
+
+<img width="3840" height="2064" alt="topologi_subnet (1)" src="https://github.com/user-attachments/assets/e7b6709c-9290-4679-ac32-c5afede0bfd3" />
+
+POHON SUBNETTING:
+
+<img width="5175" height="1359" alt="pohon_ip" src="https://github.com/user-attachments/assets/4725af96-0378-4e59-86ff-7c25bdf2f570" />
+
 
 #### Langkah-Langkah Perhitungan VLSM
 
