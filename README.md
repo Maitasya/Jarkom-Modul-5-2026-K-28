@@ -1,4 +1,4 @@
-﻿## Jarkom-Modul-5-2026-K-28
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/d6837562-8a69-484b-9bd0-595804c52007" /><img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/3479012a-6f64-4389-8ab6-a66d9ba6f34b" />﻿## Jarkom-Modul-5-2026-K-28
 
 | Nama | NRP |
 |---|---|
@@ -1500,3 +1500,481 @@ Hasil yang diharapkan menunjukkan policy INPUT dan FORWARD tetap DROP, sedangkan
 #### Kesimpulan
 
 Konfigurasi firewall pada router Gendo berhasil dilakukan dengan menerapkan policy DROP pada INPUT dan FORWARD. Aturan ACCEPT ditambahkan untuk mengizinkan loopback, DHCP NAT1, koneksi balasan, akses jaringan internal ke internet, komunikasi antar-LAN, serta akses internal ke Gendo. Pengujian dari Armisael menunjukkan koneksi ke 8.8.8.8 tetap berhasil dengan 0% packet loss. Dengan demikian, firewall berhasil membatasi koneksi baru dari NAT1 tanpa mengganggu akses jaringan internal.
+
+### SOAL 6 — KONFIGURASI IP ADDRESS STATIS DAN DEFAULT GATEWAY PADA SELURUH HOST NON-ROUTER
+
+Mengonfigurasi IP address statis dan default gateway pada 25 node non-router sesuai tabel pengalamatan Soal 2. Konfigurasi disimpan pada `/etc/network/interfaces` agar IP address dan gateway tetap digunakan setelah node dijalankan ulang.
+
+#### Konfigurasi IP Address Secara Manual
+
+Konfigurasi manual dilakukan melalui Console masing-masing node dengan mengatur alamat IP, netmask, dan gateway sesuai tabel pengalamatan.
+
+**1. Memeriksa konfigurasi awal**
+
+```bash
+ip -br addr
+ip route
+cat /etc/network/interfaces
+```
+
+**2. Membuat backup konfigurasi**
+
+```bash
+cp /etc/network/interfaces /etc/network/interfaces.backup
+```
+
+**3. Mengedit konfigurasi jaringan**
+
+```bash
+nano /etc/network/interfaces
+```
+
+Contoh konfigurasi pada Unit-01:
+
+```text
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet static
+    address 192.225.4.66
+    netmask 255.255.255.248
+    gateway 192.225.4.65
+```
+
+Alamat IP, netmask, dan gateway disesuaikan dengan masing-masing node.
+
+Simpan konfigurasi menggunakan `Ctrl + O`, Enter, kemudian keluar dengan `Ctrl + X`.
+
+**4. Memeriksa hasil konfigurasi**
+
+```bash
+ip -br addr
+ip route
+```
+
+**5. Menguji koneksi ke gateway**
+
+Pada Console Unit-01:
+
+```bash
+ping -c 4 192.225.4.65
+```
+
+Pengujian manual dilakukan pada Unit-01, Unit-02, Unit-00, Quarters, dan Comm-Net. Hasil pengujian menunjukkan koneksi ke gateway berhasil dengan 4 paket diterima dan 0% packet loss.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/c1de3cc4-86a8-428d-97aa-9f5bb1ffac8d" />
+
+#### Konfigurasi IP Address Menggunakan Script
+
+Setelah konfigurasi manual, digunakan script terpisah untuk setiap node agar proses konfigurasi lebih mudah dan konsisten. Setiap script memiliki nama sesuai node, misalnya `quarters_ip.sh`, `comm-net_ip.sh`, dan `unit-01_ip.sh`.
+
+Script melakukan tiga proses utama, yaitu menyimpan konfigurasi ke `/etc/network/interfaces`, memasang IP address dan default gateway secara langsung, serta menampilkan hasil pemeriksaan IP dan ping gateway.
+
+**1. Membuat script konfigurasi**
+
+Contoh pada Console Quarters:
+
+```bash
+cat > /root/quarters_ip.sh <<'EOF'
+#!/bin/sh
+printf 'auto lo\niface lo inet loopback\nauto eth0\niface eth0 inet static\n    address 192.225.0.2\n    netmask 255.255.254.0\n    gateway 192.225.0.1\n' > /etc/network/interfaces
+
+ip addr flush dev eth0
+ip addr add 192.225.0.2/23 dev eth0
+ip link set eth0 up
+ip route replace default via 192.225.0.1
+
+echo "== ip -br =="
+ip -br addr
+
+echo "== ping gateway =="
+ping -c 2 -W 1 192.225.0.1 && echo "OK" || echo "GAGAL"
+EOF
+```
+
+Script serupa dibuat pada setiap node dengan menyesuaikan nama file, alamat IP, prefix, netmask, dan gateway.
+
+**2. Memberikan izin eksekusi dan menjalankan script**
+
+Contoh pada Quarters:
+
+```bash
+chmod +x /root/quarters_ip.sh
+/root/quarters_ip.sh
+```
+
+Perintah tersebut juga diterapkan pada script node lainnya dengan menyesuaikan nama file.
+
+**3. Memeriksa hasil konfigurasi**
+
+```bash
+ip -br addr
+ip route
+```
+
+Hasil pemeriksaan menampilkan alamat IP pada interface `eth0` dan default gateway sesuai tabel pengalamatan.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/b129aa5b-abfa-4497-8552-41e9d444ebc2" />
+
+#### Pengujian Konektivitas dan Ketahanan Konfigurasi
+
+Pengujian dilakukan untuk memastikan alamat IP dan gateway telah terpasang serta konfigurasi tetap tersedia setelah node dijalankan ulang.
+
+**1. Pengujian IP address dan gateway Unit-01**
+
+```bash
+ip -br addr
+ip route
+ping -c 2 192.225.4.65
+```
+
+Hasil yang diharapkan adalah Unit-01 memiliki IP `192.225.4.66/29` dan dapat terhubung ke gateway `192.225.4.65`.
+
+**2. Pengujian setelah restart node**
+
+Node Unit-01 dihentikan dengan memilih **Stop**, kemudian dijalankan kembali menggunakan **Start** pada GNS3.
+
+Setelah node aktif, jalankan:
+
+```bash
+ip -br addr
+ping -c 2 192.225.4.65
+```
+
+Pengujian ini memastikan IP address tetap terpasang dan koneksi ke gateway tetap berhasil setelah node dijalankan ulang.
+
+Jika konfigurasi tidak bertahan setelah restart, konfigurasi jaringan dapat dimasukkan melalui menu **Edit config** pada node Docker GNS3.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/c33e461e-7d89-439f-8314-798514a84b21" />
+
+#### Kesimpulan
+
+Konfigurasi IP address statis dan default gateway dilakukan pada 25 node non-router sesuai tabel pengalamatan Soal 2. Pengerjaan dilakukan secara manual dan menggunakan 25 script terpisah sesuai nama masing-masing node. Setiap script menyimpan konfigurasi ke `/etc/network/interfaces`, menerapkan IP address dan gateway secara langsung, serta melakukan pemeriksaan menggunakan `ip -br addr` dan `ping`. Pengujian pada Unit-01 setelah Stop dan Start digunakan untuk memastikan konfigurasi tetap tersedia setelah node dijalankan ulang.
+
+### SOAL 7 — INSTALASI IPTABLES, NETCAT-TRADITIONAL, DAN AKTIVASI LISTENER PADA MAGI
+
+Mengaktifkan MAGI-Casper, MAGI-Balthasar, dan MAGI-Melchior pada Switch Terminal agar dapat menerima pesan dari Lilith. Pengerjaan dilakukan dengan memasang `iptables` dan `netcat-traditional`, kemudian menjalankan TCP listener sesuai port pada glosarium. Pada tahap ini belum diterapkan aturan keamanan firewall karena pembahasan keamanan dilakukan pada soal berikutnya.
+
+#### Instalasi Paket Secara Manual
+
+Instalasi dilakukan melalui Console masing-masing node MAGI. Paket yang dipasang adalah `iptables` dan `netcat-traditional`.
+
+**1. Mengatur DNS**
+
+Sebelum instalasi, DNS diperiksa terlebih dahulu. Jika `/etc/resolv.conf` kosong, DNS diatur menggunakan:
+
+```bash
+cat > /etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+```
+
+**2. Memeriksa koneksi internet**
+
+```bash
+ping -c 3 192.168.122.1
+ping -c 3 1.1.1.1
+getent hosts deb.debian.org
+```
+
+Pengujian dilakukan untuk memastikan gateway, koneksi internet, dan resolusi DNS berjalan dengan baik.
+
+**3. Memasang paket pada setiap MAGI**
+
+Perintah berikut dijalankan pada Console MAGI-Casper, MAGI-Balthasar, dan MAGI-Melchior:
+
+```bash
+apt-get update
+apt-get install -y iptables netcat-traditional
+```
+
+**4. Memeriksa hasil instalasi**
+
+```bash
+iptables --version
+nc.traditional -h
+```
+
+Hasil pemeriksaan menunjukkan `iptables` versi 1.8.11 dan `netcat-traditional` versi 1.10-50 berhasil terpasang pada ketiga MAGI.
+
+**Bukti:**
+
+MAGI-CASPER
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/6cff64a2-4a6e-46b6-9dd4-1625fced374a" />
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/6b665beb-2b2b-44d6-9d60-77ced282f26b" />
+
+
+MAGI-BALTHASAR
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/1551215c-c18b-408a-8266-f17d805369da" />
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/9c412577-f5cf-4944-a71d-9a3a70a1cad1" />
+
+MAGI-MELCHIOR
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/73283e8f-2d69-4f63-b4f8-7576ed82e514" />
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/cd3d6dc3-ba35-4164-a326-f67496db83da" />
+
+#### Aktivasi Listener Secara Manual
+
+Setelah instalasi paket berhasil, listener dijalankan pada masing-masing MAGI menggunakan `netcat-traditional`.
+
+**1. Mengaktifkan listener MAGI-Casper**
+
+Pada Console MAGI-Casper, listener dijalankan pada port 5000:
+
+```bash
+nohup sh -c 'while true; do nc.traditional -l -v -n -p 5000 >> /root/nc_5000.log 2>&1; done' >/dev/null 2>&1 &
+```
+
+**2. Mengaktifkan listener MAGI-Balthasar**
+
+Pada Console MAGI-Balthasar, listener dijalankan pada port 5000 dan 5001:
+
+```bash
+nohup sh -c 'while true; do nc.traditional -l -v -n -p 5000 >> /root/nc_5000.log 2>&1; done' >/dev/null 2>&1 &
+
+nohup sh -c 'while true; do nc.traditional -l -v -n -p 5001 >> /root/nc_5001.log 2>&1; done' >/dev/null 2>&1 &
+```
+
+**3. Mengaktifkan listener MAGI-Melchior**
+
+Pada Console MAGI-Melchior, listener dijalankan pada port 5000:
+
+```bash
+nohup sh -c 'while true; do nc.traditional -l -v -n -p 5000 >> /root/nc_5000.log 2>&1; done' >/dev/null 2>&1 &
+```
+
+**4. Memeriksa status listener**
+
+Pada masing-masing MAGI, status port diperiksa menggunakan:
+
+```bash
+ss -ltn
+```
+
+Hasil pemeriksaan menunjukkan port 5000 aktif pada Casper dan Melchior, sedangkan Balthasar menggunakan port 5000 dan 5001.
+
+**Bukti:**
+
+[LISTENER_CASPER]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/0436ac4b-f63a-4660-8b47-9dd0ededfea8" />
+
+[LISTENER_BALTHASAR]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/a0b435cf-fdc1-484c-926d-02fde7860b5e" />
+
+[LISTENER_MELCHIOR]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/e62eaf97-8132-432d-a942-a3982708ce24" />
+
+#### Konfigurasi Menggunakan Script
+
+Setelah pengujian manual, konfigurasi dibuat menggunakan script terpisah agar instalasi paket dan aktivasi listener lebih mudah dijalankan kembali. Script disimpan pada direktori `/root/` dengan nama sesuai node dan fungsi masing-masing.
+
+**1. Membuat script instalasi paket**
+
+Contoh pada MAGI-Casper:
+
+```bash
+cat > /root/magi-casper_install.sh <<'EOF'
+#!/bin/sh
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update -qq
+apt-get install -y iptables netcat-traditional
+update-alternatives --set nc /bin/nc.traditional
+
+echo "=== CEK IPTABLES ==="
+iptables --version
+
+echo "=== CEK NETCAT ==="
+nc.traditional -h 2>&1 | head -n 2
+
+echo "Instalasi MAGI-Casper selesai"
+EOF
+```
+
+Script serupa dibuat pada MAGI-Balthasar dan MAGI-Melchior dengan menyesuaikan nama file dan pesan node.
+
+Nama script instalasi:
+
+- `magi-casper_install.sh`
+- `magi-balthasar_install.sh`
+- `magi-melchior_install.sh`
+
+**2. Membuat script listener**
+
+Contoh pada MAGI-Casper:
+
+```bash
+cat > /root/magi-casper_listener.sh <<'EOF'
+#!/bin/sh
+PORTS="5000"
+
+stop_listener() {
+  for d in /proc/[0-9]*; do
+    c=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null)
+    case "$c" in
+      *"while true; do nc -l"*" -p $1 "*)
+        kill "${d#/proc/}" 2>/dev/null
+        ;;
+    esac
+  done
+}
+
+start_listener() {
+  stop_listener "$1"
+  nohup sh -c "while true; do nc -l -v -n -p $1 >> /root/nc_$1.log 2>&1; done" >/dev/null 2>&1 &
+}
+
+for p in $PORTS; do
+  start_listener "$p"
+done
+
+sleep 1
+echo "=== LISTENER CASPER ==="
+ss -ltn | grep ':5000'
+echo "=== LOG PESAN ==="
+tail -n 5 /root/nc_5000.log 2>/dev/null
+EOF
+```
+
+Script listener dibuat terpisah pada ketiga MAGI dengan pengaturan port sesuai kebutuhan:
+
+| Node | Nama script | Port |
+|---|---|---|
+| MAGI-Casper | `magi-casper_listener.sh` | 5000 |
+| MAGI-Balthasar | `magi-balthasar_listener.sh` | 5000 dan 5001 |
+| MAGI-Melchior | `magi-melchior_listener.sh` | 5000 |
+
+**3. Memberikan izin eksekusi dan menjalankan script**
+
+Contoh pada MAGI-Casper:
+
+```bash
+chmod +x /root/magi-casper_install.sh
+/root/magi-casper_install.sh
+
+chmod +x /root/magi-casper_listener.sh
+/root/magi-casper_listener.sh
+```
+
+Perintah yang sama diterapkan pada Balthasar dan Melchior dengan menyesuaikan nama script masing-masing.
+
+**Bukti:**
+
+MAGI-Casper
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/300b932f-1b56-42d9-b561-e42ff02e2b79" />
+
+Magi-Balthasar
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/a929c68c-da06-4217-8307-bbba01f82d25" />
+
+Magi-Melchior
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/f653b9c5-e453-4e1b-bf9c-18b305f47bc5" />
+
+#### Pengiriman Pesan dari Lilith
+
+Setelah ketiga listener aktif, Lilith digunakan untuk mengirim pesan ke seluruh MAGI melalui alamat IP dan port yang telah ditentukan.
+
+**1. Membuat script pengiriman pesan**
+
+Pada Console Lilith dibuat script `/root/lilith_kirim-pesan.sh`:
+
+```bash
+cat > /root/lilith_kirim-pesan.sh <<'EOF'
+#!/bin/sh
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y netcat-traditional
+
+update-alternatives --set nc /bin/nc.traditional
+
+kirim() {
+  echo "$3" | nc -w 2 "$1" "$2"
+  echo "exit=$? -> $1:$2"
+}
+
+echo "=== PENGIRIMAN PESAN DARI LILITH ==="
+
+kirim 192.225.4.58 5000 "Halo Magi-Casper, ini pesan dari Lilith"
+
+kirim 192.225.4.59 5000 "Halo Magi-Balthasar port 5000, ini pesan dari Lilith"
+
+kirim 192.225.4.59 5001 "Halo Magi-Balthasar port 5001, ini pesan dari Lilith"
+
+kirim 192.225.4.60 5000 "Halo Magi-Melchior, ini pesan dari Lilith"
+
+echo "=== PENGIRIMAN SELESAI ==="
+EOF
+```
+
+**2. Memberikan izin eksekusi dan menjalankan script**
+
+```bash
+chmod +x /root/lilith_kirim-pesan.sh
+/root/lilith_kirim-pesan.sh
+```
+
+Hasil pengujian menunjukkan keempat pengiriman berhasil dengan status `exit=0`.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/3226e8db-646c-4885-81c7-aea4f2e0c627" />
+
+#### Pengujian Listener dan Pesan yang Diterima
+
+Pengujian dilakukan pada setiap MAGI untuk memastikan listener aktif dan pesan dari Lilith berhasil diterima.
+
+**1. Pengujian MAGI-Casper**
+
+```bash
+ss -ltn | grep ':5000'
+tail -n 5 /root/nc_5000.log
+```
+
+Hasil menunjukkan port 5000 berstatus `LISTEN` dan pesan dari Lilith berhasil diterima.
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/04f686ae-b1b0-4ccf-ad7d-73201e6d8516" />
+
+**2. Pengujian MAGI-Balthasar**
+
+```bash
+ss -ltn | grep -E ':5000|:5001'
+tail -n 5 /root/nc_5000.log /root/nc_5001.log
+```
+
+Hasil menunjukkan port 5000 dan 5001 berstatus `LISTEN`. Kedua port berhasil menerima pesan dari Lilith.
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/a10af17c-cda1-4307-8bf0-709902dc9a43" />
+
+**3. Pengujian MAGI-Melchior**
+
+```bash
+ss -ltn | grep ':5000'
+tail -n 5 /root/nc_5000.log
+```
+
+Hasil menunjukkan port 5000 berstatus `LISTEN` dan pesan dari Lilith berhasil diterima.
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/7c7867a5-f67d-47da-a18f-73e1f4ad6179" />
+
+#### Kesimpulan
+
+Aktivasi MAGI-Casper, MAGI-Balthasar, dan MAGI-Melchior berhasil dilakukan melalui instalasi `iptables` dan `netcat-traditional`, kemudian menjalankan TCP listener sesuai port yang ditentukan. Pengerjaan dilakukan secara manual dan dilanjutkan menggunakan script terpisah untuk instalasi serta aktivasi listener pada setiap node. Lilith berhasil mengirimkan empat pesan ke ketiga MAGI, termasuk dua pesan ke MAGI-Balthasar melalui port 5000 dan 5001. Seluruh pengiriman menghasilkan `exit=0` dan pesan berhasil ditampilkan pada log masing-masing node. Dengan demikian, seluruh tahapan Soal 7 berhasil diselesaikan tanpa menerapkan aturan firewall, sesuai instruksi soal.
