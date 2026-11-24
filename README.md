@@ -2049,9 +2049,13 @@ Hasil pemeriksaan menunjukkan port 80 pada Pen-Pen serta port 80 dan 8080 pada T
 
 **Bukti:**
 
-[Tempel screenshot konfigurasi manual dan status listener Pen-Pen]
+[konfigurasi manual dan status listener Pen-Pen]
 
-[Tempel screenshot konfigurasi manual dan status listener Tokyo3-Core]
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/9b56bed4-c71a-44c9-8b0a-6ad418761768" />
+
+[konfigurasi manual dan status listener Tokyo3-Core]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/b834a405-05a9-4b4f-8009-5a0454880711" />
 
 #### Konfigurasi Layanan TCP Menggunakan Script
 
