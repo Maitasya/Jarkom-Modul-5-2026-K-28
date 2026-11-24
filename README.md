@@ -367,45 +367,37 @@ Bukti ping tiap router:
 
 Perintah: `/root/gendo.sh`
 
-<img width="960" alt="Gendo" src="TEMPEL_LINK_GAMBAR" />
+<img width="960" height="516" alt="Screenshot 2026-11-24 122151" src="https://github.com/user-attachments/assets/b1a4342e-0f4f-41d7-aac6-e4b6e35f46bb" />
 
 **2. Router ke router dan sisi LAN (Hikari)**
 
 Perintah: `/root/hikari.sh`
 
-<img width="960" alt="Hikari" src="TEMPEL_LINK_GAMBAR" />
+<img width="960" height="516" alt="Screenshot 2026-11-24 122349" src="https://github.com/user-attachments/assets/beae465a-4c6a-468b-ba22-e77457a712a6" />
 
 **3. Host ke gateway (Comm-Net)**
 
 Perintah: `/root/comm-net.sh`
 
-<img width="960" alt="Comm-Net" src="TEMPEL_LINK_GAMBAR" />
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/f8628c3f-7336-4aba-b85e-ef9bfe82aaec" />
 
 **4. Host ke host satu switch (Zeruel dan Armisael)**
 
 Perintah: `/root/zeruel.sh`
 
-<img width="960" alt="Zeruel" src="TEMPEL_LINK_GAMBAR" />
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/1d6058d2-3d95-4a97-bed0-d406fa167995" />
 
 **5. Router ke host satu LAN (Maya ke Medic-Bay)**
 
 Perintah: `ping -c2 192.225.3.194`
 
-<img width="960" alt="Maya ke Medic-Bay" src="TEMPEL_LINK_GAMBAR" />
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/f8566fed-6578-4410-818e-21c7489892ed" />
 
 **6. IP dan IP forwarding pada router**
 
 Perintah: `ip -br addr` dan `cat /proc/sys/net/ipv4/ip_forward`
 
-<img width="960" alt="IP forwarding" src="TEMPEL_LINK_GAMBAR" />
-
-#### Kendala dan Penyelesaian
-
-| Kendala | Penyebab | Penyelesaian |
-|---|---|---|
-| Comm-Net gagal ping `192.225.2.1` | Switch-Comm masih tersambung ke Kaworu, padahal gateway-nya Hikari | Link dihapus dan disambungkan ke Hikari `eth2`, lalu skrip dijalankan ulang |
-| Zeruel dan Armisael saling gagal ping | Node Armisael dalam keadaan stopped sehingga IP hilang | Armisael di-start, lalu skrip dijalankan ulang |
-| Beberapa baris `GAGAL` pada router | Router lawan belum dikonfigurasi saat skrip dijalankan | Skrip dijalankan ulang setelah semua router selesai |
+<img width="960" height="516" alt="Screenshot 2026-11-24 123629" src="https://github.com/user-attachments/assets/07af713c-1b68-4908-8ac3-47c96f057a35" />
 
 #### Kesimpulan
 
