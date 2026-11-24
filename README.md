@@ -602,4 +602,246 @@ Khusus Gendo, interface `eth0` memperoleh alamat IP secara otomatis melalui DHCP
 
 Pengujian konektivitas juga dilakukan pada link antar-router dan jaringan lokal untuk memastikan setiap perangkat dapat berkomunikasi dengan perangkat yang terhubung langsung. Routing antar-LAN selanjutnya dikonfigurasi pada Soal 3.
 
+### SOAL 3 — ROUTING STATIS
+
+Menghubungkan seluruh subnet pada topologi Geofront menggunakan routing statis. Rute dibangun dari Gendo ke bawah, cabang demi cabang, dengan jumlah rute sesedikit mungkin. Subnet satu cabang yang dapat digabung tepat menjadi satu CIDR diringkas. Pembuktian dilakukan dari Armisael yang harus dapat ping ke Lilith, Sachiel, dan Comm-Net.
+
+#### Ketentuan
+
+- Gendo memakai default route ke NAT1, ditambah rute ke semua subnet di tiap cabang.
+- Router selain Gendo hanya punya **satu default route ke atas** dan rute ke subnet yang berada **di bawahnya**.
+- Subnet yang terhubung langsung (connected) tidak perlu ditulis, karena otomatis ada di tabel rute.
+- Subnet satu cabang yang bisa digabung tepat menjadi satu CIDR harus diringkas.
+- Host memakai IP dan gateway sementara yang sama dengan soal 2 (IP permanen dibuat di soal 6).
+- Perintah yang dipakai `ip route replace <tujuan> via <next-hop>`, sehingga aman dijalankan berulang.
+
+#### Pohon Cabang dari Gendo
+
+```
+Gendo
+├─ Yui        ── Rei, Mari, Shinji
+├─ Hikari     ── Kaworu
+├─ Fuyutsuki  ── Maya, Toji
+├─ Asuka      ── Kensuke, Ritsuko
+├─ Kaji
+├─ Misato
+└─ Shigeru    ── Makoto
+```
+
+#### Peringkasan Rute (CIDR)
+
+Hanya cabang **Shigeru** yang dapat diringkas tepat. Dua subnet LAN di bawahnya berurutan dan selaras:
+
+```
+Switch-Monolith  192.225.4.80/29   = 192.225.4.80 - 192.225.4.87
+Switch-Radar     192.225.4.88/29   = 192.225.4.88 - 192.225.4.95
+Gabungan         192.225.4.80/28   = 192.225.4.80 - 192.225.4.95  (16 alamat, 80 kelipatan 16)
+```
+
+Cabang lain tidak bisa digabung tepat. Contohnya 192.225.4.0/27 dan 192.225.4.32/28 hanya membentuk 192.225.4.0 sampai 192.225.4.47 (48 alamat, bukan pangkat dua), dan 192.225.4.132/30 dengan 192.225.4.136/30 tidak selaras pada blok /29 (132 bukan kelipatan 8). Karena itu rute tetap per subnet. Hal ini juga diperiksa dengan `ipaddress.collapse_addresses` per next-hop dan tidak ada penggabungan tambahan.
+
+#### Rute Gendo (24 rute + default ke NAT1)
+
+| Cabang | Next-hop | Subnet tujuan |
+|---|---|---|
+| Yui | 192.225.4.118 | 192.225.0.0/23, 192.225.3.0/25, 192.225.4.0/27, 192.225.4.32/28, 192.225.4.108/30, 192.225.4.132/30, 192.225.4.136/30 |
+| Hikari | 192.225.4.114 | 192.225.2.0/24, 192.225.3.224/27, 192.225.4.128/30 |
+| Fuyutsuki | 192.225.4.146 | 192.225.3.192/27, 192.225.4.56/29, 192.225.4.72/29, 192.225.4.124/30, 192.225.4.152/30 |
+| Asuka | 192.225.4.166 | 192.225.3.128/26, 192.225.4.48/29, 192.225.4.96/30, 192.225.4.120/30, 192.225.4.140/30 |
+| Kaji | 192.225.4.170 | 192.225.4.100/30 |
+| Misato | 192.225.4.150 | 192.225.4.64/29 |
+| Shigeru | 192.225.4.158 | 192.225.4.80/28, 192.225.4.160/30 |
+| NAT1 | default | 0.0.0.0/0 (dari DHCP, cadangan 192.168.122.1) |
+
+#### Rute Router Lain
+
+| Router | Default route (ke atas) | Rute subnet di bawah |
+|---|---|---|
+| Yui | via 192.225.4.117 (Gendo) | 192.225.0.0/23 via 192.225.4.110 (Rei), 192.225.4.32/28 via 192.225.4.138 (Mari), 192.225.4.0/27 via 192.225.4.134 (Shinji) |
+| Rei | via 192.225.4.109 (Yui) | - |
+| Mari | via 192.225.4.137 (Yui) | - |
+| Shinji | via 192.225.4.133 (Yui) | - |
+| Hikari | via 192.225.4.113 (Gendo) | 192.225.3.224/27 via 192.225.4.130 (Kaworu) |
+| Kaworu | via 192.225.4.129 (Hikari) | - |
+| Fuyutsuki | via 192.225.4.145 (Gendo) | 192.225.3.192/27 via 192.225.4.126 (Maya), 192.225.4.72/29 via 192.225.4.154 (Toji) |
+| Maya | via 192.225.4.125 (Fuyutsuki) | - |
+| Toji | via 192.225.4.153 (Fuyutsuki) | - |
+| Asuka | via 192.225.4.165 (Gendo) | 192.225.3.128/26 via 192.225.4.122 (Kensuke), 192.225.4.48/29 via 192.225.4.142 (Ritsuko) |
+| Kensuke | via 192.225.4.121 (Asuka) | - |
+| Ritsuko | via 192.225.4.141 (Asuka) | - |
+| Kaji | via 192.225.4.169 (Gendo) | - |
+| Misato | via 192.225.4.149 (Gendo) | - |
+| Shigeru | via 192.225.4.157 (Gendo) | 192.225.4.88/29 via 192.225.4.162 (Makoto) |
+| Makoto | via 192.225.4.161 (Shigeru) | - |
+
+Total rute statis: 24 (Gendo) + 9 (Yui 3, Hikari 1, Fuyutsuki 2, Asuka 2, Shigeru 1) = **33 rute**, ditambah default route untuk setiap router (Gendo ke NAT1, 16 router lain ke router di atasnya).
+
+#### Cara Menjalankan Skrip
+
+1. Pastikan skrip soal 2 sudah dijalankan dan IP semua node masih terpasang (`ip -br addr`). IP hilang kalau node di-restart, jadi jalankan ulang skrip soal 2 bila perlu.
+2. Buka console Gendo, salin blok skripnya (dari `cat > /root/gendo_route.sh <<'EOF'` sampai `chmod +x ... && ...`), tempel, lalu Enter.
+3. Lakukan hal yang sama untuk 16 router lain (urutan bebas), lalu 25 host.
+4. Skrip mencetak `ip route` dan hasil ping ke next-hop (`OK` atau `GAGAL`). Jika ada `GAGAL`, jalankan ulang skrip itu setelah router tetangganya selesai.
+5. Terakhir jalankan skrip Armisael (`/root/armisael_route.sh`) sebagai bukti soal 3.
+
+#### Daftar Perintah Menjalankan Skrip
+
+**Tahap 1 — Router (urut):**
+
+| No | Node | Perintah |
+|---|---|---|
+| 1 | Gendo | /root/gendo_route.sh |
+| 2 | Yui | /root/yui_route.sh |
+| 3 | Rei | /root/rei_route.sh |
+| 4 | Mari | /root/mari_route.sh |
+| 5 | Shinji | /root/shinji_route.sh |
+| 6 | Hikari | /root/hikari_route.sh |
+| 7 | Kaworu | /root/kaworu_route.sh |
+| 8 | Fuyutsuki | /root/fuyutsuki_route.sh |
+| 9 | Maya | /root/maya_route.sh |
+| 10 | Toji | /root/toji_route.sh |
+| 11 | Asuka | /root/asuka_route.sh |
+| 12 | Kensuke | /root/kensuke_route.sh |
+| 13 | Ritsuko | /root/ritsuko_route.sh |
+| 14 | Kaji | /root/kaji_route.sh |
+| 15 | Misato | /root/misato_route.sh |
+| 16 | Shigeru | /root/shigeru_route.sh |
+| 17 | Makoto | /root/makoto_route.sh |
+
+**Tahap 2 — Host:**
+
+| No | Node | Perintah |
+|---|---|---|
+| 1 | Quarters | /root/quarters_route.sh |
+| 2 | Comm-Net | /root/comm-net_route.sh |
+| 3 | Hangar-Crew | /root/hangar-crew_route.sh |
+| 4 | Sachiel | /root/sachiel_route.sh |
+| 5 | Medic-Bay | /root/medic-bay_route.sh |
+| 6 | Pen-Pen | /root/pen-pen_route.sh |
+| 7 | Relay-Node | /root/relay-node_route.sh |
+| 8 | Garden-Staff | /root/garden-staff_route.sh |
+| 9 | Dock-Crew | /root/dock-crew_route.sh |
+| 10 | Entry-Plug | /root/entry-plug_route.sh |
+| 11 | Dummy-Plug | /root/dummy-plug_route.sh |
+| 12 | Magi-Casper | /root/magi-casper_route.sh |
+| 13 | Magi-Balthasar | /root/magi-balthasar_route.sh |
+| 14 | Magi-Melchior | /root/magi-melchior_route.sh |
+| 15 | Unit-01 | /root/unit-01_route.sh |
+| 16 | Unit-02 | /root/unit-02_route.sh |
+| 17 | Unit-00 | /root/unit-00_route.sh |
+| 18 | Lilith | /root/lilith_route.sh |
+| 19 | Adam | /root/adam_route.sh |
+| 20 | Zeruel | /root/zeruel_route.sh |
+| 21 | Armisael | /root/armisael_route.sh |
+| 22 | Radar-Array | /root/radar-array_route.sh |
+| 23 | Archive-Vault | /root/archive-vault_route.sh |
+| 24 | Spy | /root/spy_route.sh |
+| 25 | Tokyo3-Core | /root/tokyo3-core_route.sh |
+
+#### Contoh Skrip: Router Gendo
+
+```sh
+cat > /root/gendo_route.sh <<'EOF'
+#!/bin/sh
+ip route show default | grep -q default || ip route add default via 192.168.122.1
+for n in 192.225.0.0/23 192.225.3.0/25 192.225.4.0/27 192.225.4.32/28 192.225.4.108/30 192.225.4.132/30 192.225.4.136/30; do ip route replace $n via 192.225.4.118; done
+for n in 192.225.2.0/24 192.225.3.224/27 192.225.4.128/30; do ip route replace $n via 192.225.4.114; done
+for n in 192.225.3.128/26 192.225.4.48/29 192.225.4.96/30 192.225.4.120/30 192.225.4.140/30; do ip route replace $n via 192.225.4.166; done
+ip route replace 192.225.4.100/30 via 192.225.4.170
+ip route replace 192.225.4.64/29 via 192.225.4.150
+for n in 192.225.4.80/28 192.225.4.160/30; do ip route replace $n via 192.225.4.158; done
+for n in 192.225.3.192/27 192.225.4.56/29 192.225.4.72/29 192.225.4.124/30 192.225.4.152/30; do ip route replace $n via 192.225.4.146; done
+echo "== ip route =="; ip route
+echo "== ping next-hop =="
+for h in 118 114 166 170 150 158 146; do ping -c2 -W1 192.225.4.$h >/dev/null 2>&1 && echo "OK   192.225.4.$h" || echo "GAGAL 192.225.4.$h"; done
+EOF
+chmod +x /root/gendo_route.sh && /root/gendo_route.sh
+```
+
+Penjelasan: baris pertama hanya menambah default route ke NAT1 bila DHCP belum memberikannya. Tiap `for` memasang semua subnet satu cabang lewat satu next-hop (IP router anak pada link dengan Gendo). `ip route replace` membuat perintah aman diulang. Blok `ping` memeriksa ketujuh next-hop.
+
+#### Contoh Skrip: Router Percabangan (Yui) dan Router Daun (Rei)
+
+```sh
+cat > /root/yui_route.sh <<'EOF'
+#!/bin/sh
+ip route replace default via 192.225.4.117
+ip route replace 192.225.0.0/23 via 192.225.4.110
+ip route replace 192.225.4.32/28 via 192.225.4.138
+ip route replace 192.225.4.0/27 via 192.225.4.134
+echo "== ip route =="; ip route
+echo "== ping next-hop =="
+for h in 117 110 138 134; do ping -c2 -W1 192.225.4.$h >/dev/null 2>&1 && echo "OK   192.225.4.$h" || echo "GAGAL 192.225.4.$h"; done
+EOF
+chmod +x /root/yui_route.sh && /root/yui_route.sh
+```
+
+```sh
+cat > /root/rei_route.sh <<'EOF'
+#!/bin/sh
+ip route replace default via 192.225.4.109
+echo "== ip route =="; ip route
+ping -c2 -W1 192.225.4.109 >/dev/null 2>&1 && echo "OK   192.225.4.109" || echo "GAGAL 192.225.4.109"
+EOF
+chmod +x /root/rei_route.sh && /root/rei_route.sh
+```
+
+Router percabangan punya default route ke atas dan rute ke subnet LAN anak-anaknya. Router daun hanya punya default route ke atas.
+
+#### Contoh Skrip Host: Armisael (Bukti Soal 3)
+
+```sh
+cat > /root/armisael_route.sh <<'EOF'
+#!/bin/sh
+ip addr flush dev eth0; ip addr add 192.225.4.83/29 dev eth0; ip link set eth0 up
+ip route replace default via 192.225.4.81
+ip -br addr; ip route
+echo "== ping gateway =="
+ping -c2 -W1 192.225.4.81 >/dev/null 2>&1 && echo "OK   192.225.4.81  (gateway)" || echo "GAGAL 192.225.4.81"
+echo "== ping bukti soal 3 =="
+ping -c2 -W1 192.225.4.74 >/dev/null 2>&1 && echo "OK   192.225.4.74  (Lilith)" || echo "GAGAL 192.225.4.74  (Lilith)"
+ping -c2 -W1 192.225.3.130 >/dev/null 2>&1 && echo "OK   192.225.3.130  (Sachiel)" || echo "GAGAL 192.225.3.130  (Sachiel)"
+ping -c2 -W1 192.225.2.2 >/dev/null 2>&1 && echo "OK   192.225.2.2  (Comm-Net)" || echo "GAGAL 192.225.2.2  (Comm-Net)"
+EOF
+chmod +x /root/armisael_route.sh && /root/armisael_route.sh
+```
+
+Jalur paket: Armisael → Shigeru → Gendo → Fuyutsuki → Toji → Lilith. Armisael → Shigeru → Gendo → Asuka → Kensuke → Sachiel. Armisael → Shigeru → Gendo → Hikari → Comm-Net. Paket balasan kembali lewat default route tiap router ke atas, lalu rute Gendo ke Shigeru (192.225.4.80/28).
+
+#### Verifikasi
+
+- **Tabel rute:** `ip route` di tiap router, cocokkan dengan tabel di atas.
+- **Ping next-hop:** semua baris `OK` pada output skrip tiap router.
+- **Bukti utama:** dari Armisael, ping ke Lilith (192.225.4.74), Sachiel (192.225.3.130), dan Comm-Net (192.225.2.2) berhasil.
+
+#### Bukti Hasil
+
+**1. Armisael ping ke Lilith, Sachiel, dan Comm-Net**
+
+Perintah: /root/armisael_route.sh
+
+<img width="960" height="516" alt="bukti" src="TEMPEL_LINK_GAMBAR" />
+
+**2. Tabel rute Gendo (24 rute + default NAT1)**
+
+Perintah: ip route
+
+<img width="960" height="516" alt="bukti" src="TEMPEL_LINK_GAMBAR" />
+
+**3. Tabel rute router percabangan (Yui)**
+
+Perintah: ip route
+
+<img width="960" height="516" alt="bukti" src="TEMPEL_LINK_GAMBAR" />
+
+**4. Tabel rute router daun (Rei, hanya default route)**
+
+Perintah: ip route
+
+<img width="960" height="516" alt="bukti" src="TEMPEL_LINK_GAMBAR" />
+
+#### Kesimpulan
+
+Seluruh subnet pada topologi Geofront dihubungkan dengan routing statis berbasis struktur pohon dari Gendo. Gendo menyimpan 24 rute ke semua cabang dan default route ke NAT1, sedangkan router lain hanya menyimpan satu default route ke atas dan rute ke subnet di bawahnya. Subnet Monolith dan Radar pada cabang Shigeru diringkas menjadi 192.225.4.80/28, sehingga jumlah rute tetap sesedikit mungkin. Konektivitas antar-LAN dibuktikan dari Armisael yang dapat melakukan ping ke Lilith, Sachiel, dan Comm-Net.
+
 
