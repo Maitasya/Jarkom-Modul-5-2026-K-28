@@ -145,275 +145,398 @@ Berdasarkan perhitungan menggunakan metode VLSM, prefix induk `192.225.0.0/21` b
 
 ### SOAL 2 — KONFIGURASI IP ADDRESS, IP FORWARDING, DAN VERIFIKASI LINK
 
-Mengonfigurasi alamat IP pada seluruh interface router (17 router) dan host (25 host) sesuai hasil VLSM soal 1, mengaktifkan IP forwarding pada router, lalu membuktikan konektivitas dengan ping ke kedua ujung setiap link antar-router. Konfigurasi dibuat dalam bentuk skrip `sh` per node yang disimpan di `/root/<nama>.sh`.
+Pada Soal 2 dilakukan konfigurasi alamat IP pada seluruh interface router (17 router) dan host (25 host) berdasarkan hasil perhitungan VLSM pada Soal 1. Selain itu, IP forwarding diaktifkan pada seluruh router agar perangkat dapat meneruskan paket antar-interface.
+
+Konfigurasi dilakukan menggunakan skrip `.sh` pada setiap node yang disimpan di direktori `/root/`. Pengujian dilakukan dengan memeriksa alamat IP, status IP forwarding, serta melakukan ping ke kedua ujung setiap link antar-router dan koneksi lokal.
 
 #### Ketentuan
 
-- Router: IP tiap interface, IP forwarding aktif (`net.ipv4.ip_forward=1`).
-- Host: IP statis pada `eth0` dan default gateway ke router di switch-nya.
-- Gendo `eth0` terhubung ke NAT1 dan mendapat IP lewat DHCP, jadi tidak ditulis manual.
-- Switch GNS3 tidak perlu dikonfigurasi.
-- Ping antar-LAN belum bisa dilakukan sampai routing statis dikerjakan (soal 3).
+- **Router:** Setiap interface dikonfigurasi menggunakan alamat IP dan prefix sesuai topologi. IP forwarding diaktifkan dengan nilai `net.ipv4.ip_forward=1`.
+- **Host:** Menggunakan IP statis pada interface `eth0` dan default gateway diarahkan ke router yang terhubung melalui switch.
+- **Gendo:** Interface `eth0` terhubung ke NAT1 dan memperoleh alamat IP secara dinamis menggunakan DHCP. IP pada interface ini tidak dikonfigurasi secara permanen menggunakan alamat statis.
+- **Switch GNS3:** Tidak memerlukan konfigurasi IP.
+- **Konektivitas antar-LAN:** Belum dapat dilakukan sebelum konfigurasi routing statis pada Soal 3. Pada Soal 2, pengujian difokuskan pada link yang terhubung langsung dan jaringan lokal.
 
-  #### Konfigurasi DHCP pada Gendo
+#### Konfigurasi DHCP pada Gendo
 
-Gendo merupakan satu-satunya router yang terhubung langsung ke NAT1 melalui interface `eth0`. Oleh karena itu, alamat IP pada interface tersebut diperoleh secara otomatis menggunakan DHCP, bukan dikonfigurasi secara manual.
+Gendo merupakan satu-satunya router yang terhubung langsung ke NAT1 melalui interface `eth0`. Oleh karena itu, alamat IP pada interface tersebut diperoleh secara otomatis menggunakan DHCP.
 
-Langkah konfigurasi DHCP dilakukan sebagai berikut:
+**1. Memulihkan koneksi internet sementara**
 
-**1. Memasang DHCP Client**
+Pada awal konfigurasi, Gendo belum memiliki alamat IPv4 pada `eth0` dan belum tersedia DHCP Client. Agar dapat mengakses repositori Debian untuk memasang DHCP Client, digunakan alamat IP sementara pada interface `eth0`.
 
-Sebelum meminta alamat IP dari NAT1, DHCP Client dipasang pada Gendo menggunakan perintah:
+Perintah yang dijalankan:
+
+```bash
+ip addr add 192.168.122.2/24 dev eth0
+ip route replace default via 192.168.122.1 dev eth0
+echo "nameserver 192.168.122.1" > /etc/resolv.conf
+```
+
+Alamat `192.168.122.2/24` hanya digunakan sementara untuk memulihkan koneksi ke NAT1. Alamat tersebut bukan alamat IP akhir Gendo.
+
+Konektivitas diuji menggunakan:
+
+```bash
+ping -c 4 192.168.122.1
+ping -c 4 8.8.8.8
+ping -c 4 deb.debian.org
+```
+
+Ketiga pengujian berhasil dengan 4 paket terkirim, 4 paket diterima, dan 0% packet loss. Hal ini menunjukkan bahwa koneksi ke NAT1 dan jaringan internet telah tersedia.
+
+**2. Memasang DHCP Client**
+
+Setelah koneksi internet berhasil dipulihkan, DHCP Client dipasang pada Gendo menggunakan perintah:
 
 ```bash
 apt update
 apt install isc-dhcp-client -y
 ```
 
-**2. Meminta alamat IP melalui DHCP**
+Paket `isc-dhcp-client` digunakan agar Gendo dapat meminta dan menerima alamat IP secara otomatis dari DHCP Server NAT1.
 
-Setelah DHCP Client berhasil dipasang, jalankan perintah berikut:
+**3. Memperoleh alamat IP secara dinamis**
+
+Setelah DHCP Client berhasil dipasang, alamat IP diminta melalui interface `eth0` dengan perintah:
 
 ```bash
+dhclient -r eth0
 dhclient -v eth0
 ```
 
-Gendo kemudian mengirimkan permintaan DHCP kepada NAT1. NAT1 memberikan alamat IP `192.168.122.162/24` dan menyetujui permintaan tersebut melalui DHCPACK.
+Perintah `dhclient -r eth0` digunakan untuk melepaskan lease DHCP sebelumnya, sedangkan `dhclient -v eth0` digunakan untuk meminta alamat IP kembali dari DHCP Server NAT1.
 
-**3. Memeriksa alamat IP dan default gateway**
+Hasil proses DHCP menunjukkan:
 
-Untuk memastikan alamat IP berhasil diperoleh secara otomatis, jalankan:
+```text
+DHCPDISCOVER on eth0
+DHCPOFFER of 192.168.122.162 from 192.168.122.1
+DHCPREQUEST for 192.168.122.162
+DHCPACK of 192.168.122.162 from 192.168.122.1
+bound to 192.168.122.162
+```
+
+Setelah alamat dinamis berhasil diperoleh, alamat IP sementara `192.168.122.2/24` dihapus menggunakan perintah:
+
+```bash
+ip addr del 192.168.122.2/24 dev eth0
+```
+
+**4. Memeriksa alamat IP dan default gateway**
+
+Pemeriksaan dilakukan menggunakan:
 
 ```bash
 ip -4 addr show dev eth0
 ip route show default
 ```
 
-Hasil konfigurasi menunjukkan:
+Hasil pemeriksaan menunjukkan:
+
 - IP address: `192.168.122.162/24`
+- Status alamat IP: `dynamic`
 - Default gateway: `192.168.122.1`
 - Interface: `eth0`
 
-Alamat `192.168.122.162` diperoleh melalui DHCP, sedangkan alamat IP sementara yang sebelumnya dikonfigurasi secara manual telah dihapus.
+Alamat `192.168.122.162` diperoleh secara otomatis melalui DHCP dari NAT1. Dengan demikian, alamat IP sementara `192.168.122.2` sudah tidak digunakan.
 
-**4. Menguji konektivitas NAT1 dan internet**
+**5. Menguji konektivitas NAT1 dan internet**
 
-Pengujian dilakukan menggunakan perintah:
+Pengujian konektivitas dilakukan menggunakan:
 
 ```bash
 ping -c 4 192.168.122.1
 ping -c 4 8.8.8.8
 ```
 
+HASILNYA:
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/bf3f4239-9eca-4178-b0cc-5541f6f2f050" />
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/f7751d31-2c82-46b5-81d9-a39e07a2c7fa" />
+
+
 Kedua pengujian berhasil dengan 4 paket terkirim, 4 paket diterima, dan 0% packet loss.
 
-Dengan demikian, Gendo berhasil memperoleh alamat IP secara otomatis dari NAT1 dan dapat terhubung ke jaringan luar.
+Dengan demikian, Gendo berhasil memperoleh alamat IP secara dinamis dari NAT1 dan dapat mengakses jaringan luar.
 
 #### Cara Menjalankan Skrip
 
-1. Pastikan kabel di GNS3 sesuai topologi. Switch-Comm harus tersambung ke **Hikari eth2**, bukan ke Kaworu.
-2. Start semua node, lalu buka console node dengan klik dua kali pada node di GNS3.
-3. Salin satu blok skrip node tersebut (dari `cat > /root/<nama>.sh <<'EOF'` sampai `chmod +x /root/<nama>.sh && /root/<nama>.sh`), tempel ke console, lalu tekan Enter.
-4. Skrip tersimpan di `/root/<nama>.sh`, langsung dijalankan, dan mencetak `ip -br addr` beserta hasil ping.
-5. Urutan: **semua router dulu (mulai dari Gendo)**, lalu semua host.
-6. Setelah semua node selesai, jalankan ulang skrip tiap router (`/root/<nama>.sh`) agar baris `GAGAL` yang muncul karena tetangga belum siap berubah menjadi `OK`.
+1. Pastikan kabel pada GNS3 sudah sesuai dengan topologi. Switch-Comm harus terhubung ke **Hikari eth2**, bukan ke Kaworu.
+2. Jalankan seluruh node, kemudian buka console masing-masing node dengan klik dua kali pada node di GNS3.
+3. Salin skrip konfigurasi node yang sesuai, mulai dari perintah `cat > /root/<nama>.sh <<'EOF'` sampai perintah penutup `EOF`.
+4. Jalankan perintah `chmod +x /root/<nama>.sh && /root/<nama>.sh` untuk memberikan izin eksekusi dan menjalankan skrip.
+5. Skrip disimpan pada direktori `/root/` di masing-masing node.
+6. Konfigurasi dilakukan dengan urutan seluruh router terlebih dahulu, dimulai dari Gendo, kemudian dilanjutkan dengan seluruh host.
+7. Setelah semua node selesai dikonfigurasi, lakukan pengujian ulang pada setiap link antar-router agar kedua ujung link sudah aktif.
+
+**Catatan khusus Gendo:** Script `/root/gendo.sh` tidak boleh memasang IP statis pada `eth0`. Interface tersebut harus memperoleh alamat IP melalui DHCP. Contoh perintah DHCP yang digunakan pada Gendo:
+
+```bash
+ip link set eth0 up
+dhclient -4 eth0
+```
+
+IP interface internal Gendo (`eth1` sampai `eth8`) tetap dikonfigurasi sesuai hasil VLSM.
 
 #### Daftar Perintah Menjalankan Skrip
 
-Setelah skrip tersimpan, tiap node dijalankan ulang dengan `/root/<nama>.sh` di console node masing-masing.
+Setelah skrip tersimpan, setiap node dapat dikonfigurasi ulang dengan menjalankan perintah `/root/<nama>.sh` pada console node masing-masing.
 
-**Tahap 1 — Router (urut):**
+**Tahap 1 — Router**
 
-| No | Node | Perintah |
-|---|---|---|
-| 1 | Gendo | `/root/gendo.sh` |
-| 2 | Yui | `/root/yui.sh` |
-| 3 | Rei | `/root/rei.sh` |
-| 4 | Mari | `/root/mari.sh` |
-| 5 | Shinji | `/root/shinji.sh` |
-| 6 | Hikari | `/root/hikari.sh` |
-| 7 | Kaworu | `/root/kaworu.sh` |
-| 8 | Fuyutsuki | `/root/fuyutsuki.sh` |
-| 9 | Maya | `/root/maya.sh` |
-| 10 | Toji | `/root/toji.sh` |
-| 11 | Asuka | `/root/asuka.sh` |
-| 12 | Kensuke | `/root/kensuke.sh` |
-| 13 | Ritsuko | `/root/ritsuko.sh` |
-| 14 | Kaji | `/root/kaji.sh` |
-| 15 | Misato | `/root/misato.sh` |
-| 16 | Shigeru | `/root/shigeru.sh` |
-| 17 | Makoto | `/root/makoto.sh` |
+| No | Node      | Perintah             |
+| -- | --------- | -------------------- |
+| 1  | Gendo     | `/root/gendo.sh`     |
+| 2  | Yui       | `/root/yui.sh`       |
+| 3  | Rei       | `/root/rei.sh`       |
+| 4  | Mari      | `/root/mari.sh`      |
+| 5  | Shinji    | `/root/shinji.sh`    |
+| 6  | Hikari    | `/root/hikari.sh`    |
+| 7  | Kaworu    | `/root/kaworu.sh`    |
+| 8  | Fuyutsuki | `/root/fuyutsuki.sh` |
+| 9  | Maya      | `/root/maya.sh`      |
+| 10 | Toji      | `/root/toji.sh`      |
+| 11 | Asuka     | `/root/asuka.sh`     |
+| 12 | Kensuke   | `/root/kensuke.sh`   |
+| 13 | Ritsuko   | `/root/ritsuko.sh`   |
+| 14 | Kaji      | `/root/kaji.sh`      |
+| 15 | Misato    | `/root/misato.sh`    |
+| 16 | Shigeru   | `/root/shigeru.sh`   |
+| 17 | Makoto    | `/root/makoto.sh`    |
 
-**Tahap 2 — Host:**
+**Tahap 2 — Host**
 
-| No | Node | Perintah |
-|---|---|---|
-| 1 | Quarters | `/root/quarters.sh` |
-| 2 | Comm-Net | `/root/comm-net.sh` |
-| 3 | Hangar-Crew | `/root/hangar-crew.sh` |
-| 4 | Sachiel | `/root/sachiel.sh` |
-| 5 | Medic-Bay | `/root/medic-bay.sh` |
-| 6 | Pen-Pen | `/root/pen-pen.sh` |
-| 7 | Relay-Node | `/root/relay-node.sh` |
-| 8 | Garden-Staff | `/root/garden-staff.sh` |
-| 9 | Dock-Crew | `/root/dock-crew.sh` |
-| 10 | Entry-Plug | `/root/entry-plug.sh` |
-| 11 | Dummy-Plug | `/root/dummy-plug.sh` |
-| 12 | Magi-Casper | `/root/magi-casper.sh` |
+| No | Node           | Perintah                  |
+| -- | -------------- | ------------------------- |
+| 1  | Quarters       | `/root/quarters.sh`       |
+| 2  | Comm-Net       | `/root/comm-net.sh`       |
+| 3  | Hangar-Crew    | `/root/hangar-crew.sh`    |
+| 4  | Sachiel        | `/root/sachiel.sh`        |
+| 5  | Medic-Bay      | `/root/medic-bay.sh`      |
+| 6  | Pen-Pen        | `/root/pen-pen.sh`        |
+| 7  | Relay-Node     | `/root/relay-node.sh`     |
+| 8  | Garden-Staff   | `/root/garden-staff.sh`   |
+| 9  | Dock-Crew      | `/root/dock-crew.sh`      |
+| 10 | Entry-Plug     | `/root/entry-plug.sh`     |
+| 11 | Dummy-Plug     | `/root/dummy-plug.sh`     |
+| 12 | Magi-Casper    | `/root/magi-casper.sh`    |
 | 13 | Magi-Balthasar | `/root/magi-balthasar.sh` |
-| 14 | Magi-Melchior | `/root/magi-melchior.sh` |
-| 15 | Unit-01 | `/root/unit-01.sh` |
-| 16 | Unit-02 | `/root/unit-02.sh` |
-| 17 | Unit-00 | `/root/unit-00.sh` |
-| 18 | Lilith | `/root/lilith.sh` |
-| 19 | Adam | `/root/adam.sh` |
-| 20 | Zeruel | `/root/zeruel.sh` |
-| 21 | Armisael | `/root/armisael.sh` |
-| 22 | Radar-Array | `/root/radar-array.sh` |
-| 23 | Archive-Vault | `/root/archive-vault.sh` |
-| 24 | Spy | `/root/spy.sh` |
-| 25 | Tokyo3-Core | `/root/tokyo3-core.sh` |
+| 14 | Magi-Melchior  | `/root/magi-melchior.sh`  |
+| 15 | Unit-01        | `/root/unit-01.sh`        |
+| 16 | Unit-02        | `/root/unit-02.sh`        |
+| 17 | Unit-00        | `/root/unit-00.sh`        |
+| 18 | Lilith         | `/root/lilith.sh`         |
+| 19 | Adam           | `/root/adam.sh`           |
+| 20 | Zeruel         | `/root/zeruel.sh`         |
+| 21 | Armisael       | `/root/armisael.sh`       |
+| 22 | Radar-Array    | `/root/radar-array.sh`    |
+| 23 | Archive-Vault  | `/root/archive-vault.sh`  |
+| 24 | Spy            | `/root/spy.sh`            |
+| 25 | Tokyo3-Core    | `/root/tokyo3-core.sh`    |
 
-**Tahap 3 — Jalankan ulang semua router** (urutan sama seperti Tahap 1) agar semua baris ping menjadi `OK`.
+**Tahap 3 — Verifikasi ulang router**
 
-Jika file hilang setelah node di-restart, tempel ulang blok skripnya (langkah 3 di atas).
+Setelah seluruh router dan host selesai dikonfigurasi, jalankan kembali skrip router untuk memastikan link antar-router dapat saling berkomunikasi. Pengujian dilakukan pada kedua ujung setiap link.
+
+Apabila konfigurasi node hilang setelah restart, skrip yang tersimpan dapat dijalankan kembali. Jika file skrip juga hilang, skrip perlu dibuat kembali dari salinan konfigurasi yang telah disimpan.
 
 #### Contoh Skrip: Router Hikari
 
 ```sh
 cat > /root/hikari.sh <<'EOF'
 #!/bin/sh
-IF_0=eth0   # Link Gendo–Hikari
-IF_1=eth1   # Link Hikari–Kaworu
+
+IF_0=eth0   # Link Gendo-Hikari
+IF_1=eth1   # Link Hikari-Kaworu
 IF_2=eth2   # Switch-Comm
 
-ip addr flush dev $IF_0; ip addr add 192.225.4.114/30 dev $IF_0; ip link set $IF_0 up
-ip addr flush dev $IF_1; ip addr add 192.225.4.129/30 dev $IF_1; ip link set $IF_1 up
-ip addr flush dev $IF_2; ip addr add 192.225.2.1/24 dev $IF_2; ip link set $IF_2 up
+ip addr flush dev $IF_0
+ip addr add 192.225.4.114/30 dev $IF_0
+ip link set $IF_0 up
+
+ip addr flush dev $IF_1
+ip addr add 192.225.4.129/30 dev $IF_1
+ip link set $IF_1 up
+
+ip addr flush dev $IF_2
+ip addr add 192.225.2.1/24 dev $IF_2
+ip link set $IF_2 up
 
 sysctl -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || echo 1 > /proc/sys/net/ipv4/ip_forward
 echo 'net.ipv4.ip_forward=1' > /etc/sysctl.d/99-forward.conf 2>/dev/null
 
+echo "=== IP ADDRESS HIKARI ==="
 ip -br addr
-ping -c2 -W1 192.225.4.113 >/dev/null 2>&1 && echo "OK   192.225.4.113 (Gendo–Hikari)" || echo "GAGAL 192.225.4.113"
-ping -c2 -W1 192.225.4.130 >/dev/null 2>&1 && echo "OK   192.225.4.130 (Hikari–Kaworu)" || echo "GAGAL 192.225.4.130"
+
+echo "=== IP FORWARDING ==="
+cat /proc/sys/net/ipv4/ip_forward
+
+ping -c 2 -W 1 192.225.4.113 >/dev/null 2>&1 && echo "OK   192.225.4.113 (Gendo-Hikari)" || echo "GAGAL 192.225.4.113"
+ping -c 2 -W 1 192.225.4.130 >/dev/null 2>&1 && echo "OK   192.225.4.130 (Hikari-Kaworu)" || echo "GAGAL 192.225.4.130"
 EOF
-chmod +x /root/hikari.sh && /root/hikari.sh
+
+chmod +x /root/hikari.sh
+/root/hikari.sh
 ```
 
-Penjelasan skrip:
+**Penjelasan skrip:**
 
-- `ip addr flush` menghapus IP lama agar tidak bentrok, `ip addr add` memasang IP/prefix, dan `ip link set ... up` mengaktifkan interface.
-- `sysctl -w net.ipv4.ip_forward=1` mengaktifkan IP forwarding agar router meneruskan paket antar-interface.
-- Perintah `ping -c2 -W1` mengirim 2 paket dengan batas tunggu 1 detik. Hasilnya dicetak `OK` atau `GAGAL`.
+- `ip addr flush` menghapus alamat IP lama pada interface agar tidak terjadi konflik.
+- `ip addr add` memasang alamat IP dan prefix sesuai hasil VLSM.
+- `ip link set ... up` mengaktifkan interface.
+- `sysctl -w net.ipv4.ip_forward=1` mengaktifkan IP forwarding agar router dapat meneruskan paket antar-interface.
+- Perintah `ping -c 2 -W 1` mengirimkan dua paket ICMP dengan batas waktu tunggu satu detik. Hasilnya ditampilkan sebagai `OK` atau `GAGAL`.
 
-Contoh skrip host (Comm-Net): IP dipasang pada `eth0`, lalu default gateway diarahkan ke router.
+#### Contoh Skrip Host: Comm-Net
+
+Pada host, alamat IP dipasang pada `eth0`, kemudian default gateway diarahkan ke interface router yang terhubung pada switch yang sama.
 
 ```sh
-ip addr flush dev eth0; ip addr add 192.225.2.2/24 dev eth0; ip link set eth0 up
+ip addr flush dev eth0
+ip addr add 192.225.2.2/24 dev eth0
+ip link set eth0 up
+
 ip route replace default via 192.225.2.1
-ping -c2 -W1 192.225.2.1 >/dev/null 2>&1 && echo "OK 192.225.2.1" || echo "GAGAL 192.225.2.1"
+
+ping -c 2 -W 1 192.225.2.1 >/dev/null 2>&1 && echo "OK 192.225.2.1" || echo "GAGAL 192.225.2.1"
 ```
 
-Skrip router dan host lain memakai pola yang sama, hanya berbeda pada interface, IP, dan alamat yang di-ping.
+Skrip router dan host lainnya menggunakan pola yang sama, dengan menyesuaikan nama interface, alamat IP, prefix, default gateway, dan alamat tujuan ping berdasarkan topologi.
 
 #### Tabel IP Link Antar-Router (/30)
 
-| Link | Router 1 (interface, IP) | Router 2 (interface, IP) |
-|---|---|---|
-| Gendo–Yui | Gendo eth1 `192.225.4.117` | Yui eth0 `192.225.4.118` |
-| Gendo–Hikari | Gendo eth2 `192.225.4.113` | Hikari eth0 `192.225.4.114` |
-| Gendo–Asuka | Gendo eth3 `192.225.4.165` | Asuka eth0 `192.225.4.166` |
-| Gendo–Kaji | Gendo eth4 `192.225.4.169` | Kaji eth0 `192.225.4.170` |
-| Gendo–Misato | Gendo eth5 `192.225.4.149` | Misato eth0 `192.225.4.150` |
-| Gendo–Shigeru | Gendo eth6 `192.225.4.157` | Shigeru eth0 `192.225.4.158` |
-| Gendo–Fuyutsuki | Gendo eth7 `192.225.4.145` | Fuyutsuki eth0 `192.225.4.146` |
-| Yui–Rei | Yui eth1 `192.225.4.109` | Rei eth0 `192.225.4.110` |
-| Yui–Mari | Yui eth2 `192.225.4.137` | Mari eth0 `192.225.4.138` |
-| Yui–Shinji | Yui eth3 `192.225.4.133` | Shinji eth0 `192.225.4.134` |
-| Hikari–Kaworu | Hikari eth1 `192.225.4.129` | Kaworu eth0 `192.225.4.130` |
-| Fuyutsuki–Toji | Fuyutsuki eth1 `192.225.4.153` | Toji eth0 `192.225.4.154` |
-| Fuyutsuki–Maya | Fuyutsuki eth2 `192.225.4.125` | Maya eth0 `192.225.4.126` |
-| Asuka–Kensuke | Asuka eth1 `192.225.4.121` | Kensuke eth0 `192.225.4.122` |
-| Asuka–Ritsuko | Asuka eth2 `192.225.4.141` | Ritsuko eth0 `192.225.4.142` |
-| Shigeru–Makoto | Shigeru eth1 `192.225.4.161` | Makoto eth0 `192.225.4.162` |
+| Link            | Router 1 (interface, IP)       | Router 2 (interface, IP)       |
+| --------------- | ------------------------------ | ------------------------------ |
+| Gendo-Yui       | Gendo eth1 `192.225.4.117`     | Yui eth0 `192.225.4.118`       |
+| Gendo-Hikari    | Gendo eth2 `192.225.4.113`     | Hikari eth0 `192.225.4.114`    |
+| Gendo-Asuka     | Gendo eth3 `192.225.4.165`     | Asuka eth0 `192.225.4.166`     |
+| Gendo-Kaji      | Gendo eth4 `192.225.4.169`     | Kaji eth0 `192.225.4.170`      |
+| Gendo-Misato    | Gendo eth5 `192.225.4.149`     | Misato eth0 `192.225.4.150`    |
+| Gendo-Shigeru   | Gendo eth6 `192.225.4.157`     | Shigeru eth0 `192.225.4.158`   |
+| Gendo-Fuyutsuki | Gendo eth7 `192.225.4.145`     | Fuyutsuki eth0 `192.225.4.146` |
+| Yui-Rei         | Yui eth1 `192.225.4.109`       | Rei eth0 `192.225.4.110`       |
+| Yui-Mari        | Yui eth2 `192.225.4.137`       | Mari eth0 `192.225.4.138`      |
+| Yui-Shinji      | Yui eth3 `192.225.4.133`       | Shinji eth0 `192.225.4.134`    |
+| Hikari-Kaworu   | Hikari eth1 `192.225.4.129`    | Kaworu eth0 `192.225.4.130`    |
+| Fuyutsuki-Toji  | Fuyutsuki eth1 `192.225.4.153` | Toji eth0 `192.225.4.154`      |
+| Fuyutsuki-Maya  | Fuyutsuki eth2 `192.225.4.125` | Maya eth0 `192.225.4.126`      |
+| Asuka-Kensuke   | Asuka eth1 `192.225.4.121`     | Kensuke eth0 `192.225.4.122`   |
+| Asuka-Ritsuko   | Asuka eth2 `192.225.4.141`     | Ritsuko eth0 `192.225.4.142`   |
+| Shigeru-Makoto  | Shigeru eth1 `192.225.4.161`   | Makoto eth0 `192.225.4.162`    |
 
 #### Tabel IP Sisi LAN Router (Gateway)
 
-| Switch | Router | Interface | IP Gateway/Prefix |
-|---|---|---|---|
-| Quarters | Rei | eth1 | `192.225.0.1/23` |
-| Comm | Hikari | eth2 | `192.225.2.1/24` |
-| Hangar | Yui | eth4 | `192.225.3.1/25` |
-| Bunker | Kensuke | eth1 | `192.225.3.129/26` |
-| Medic | Maya | eth1 | `192.225.3.193/27` |
-| Relay | Kaworu | eth1 | `192.225.3.225/27` |
-| Garden | Shinji | eth1 | `192.225.4.1/27` |
-| Dock | Mari | eth1 | `192.225.4.33/28` |
-| Lab | Ritsuko | eth1 | `192.225.4.49/29` |
-| Terminal | Fuyutsuki | eth3 | `192.225.4.57/29` |
-| Cage | Misato | eth1 | `192.225.4.65/29` |
-| Dogma | Toji | eth1 | `192.225.4.73/29` |
-| Monolith | Shigeru | eth2 | `192.225.4.81/29` |
-| Radar | Makoto | eth1 | `192.225.4.89/29` |
-| Archive | Asuka | eth3 | `192.225.4.97/30` |
-| Intel | Kaji | eth1 | `192.225.4.101/30` |
-| Cmd | Gendo | eth8 | `192.225.4.105/30` |
+| Switch   | Router    | Interface | IP Gateway/Prefix  |
+| -------- | --------- | --------- | ------------------ |
+| Quarters | Rei       | eth1      | `192.225.0.1/23`   |
+| Comm     | Hikari    | eth2      | `192.225.2.1/24`   |
+| Hangar   | Yui       | eth4      | `192.225.3.1/25`   |
+| Bunker   | Kensuke   | eth1      | `192.225.3.129/26` |
+| Medic    | Maya      | eth1      | `192.225.3.193/27` |
+| Relay    | Kaworu    | eth1      | `192.225.3.225/27` |
+| Garden   | Shinji    | eth1      | `192.225.4.1/27`   |
+| Dock     | Mari      | eth1      | `192.225.4.33/28`  |
+| Lab      | Ritsuko   | eth1      | `192.225.4.49/29`  |
+| Terminal | Fuyutsuki | eth3      | `192.225.4.57/29`  |
+| Cage     | Misato    | eth1      | `192.225.4.65/29`  |
+| Dogma    | Toji      | eth1      | `192.225.4.73/29`  |
+| Monolith | Shigeru   | eth2      | `192.225.4.81/29`  |
+| Radar    | Makoto    | eth1      | `192.225.4.89/29`  |
+| Archive  | Asuka     | eth3      | `192.225.4.97/30`  |
+| Intel    | Kaji      | eth1      | `192.225.4.101/30` |
+| Cmd      | Gendo     | eth8      | `192.225.4.105/30` |
 
 #### Tabel IP Host
 
-| Host | Switch | IP/Prefix | Gateway |
-|---|---|---|---|
-| Quarters | Quarters | `192.225.0.2/23` | `192.225.0.1` |
-| Comm-Net | Comm | `192.225.2.2/24` | `192.225.2.1` |
-| Hangar-Crew | Hangar | `192.225.3.2/25` | `192.225.3.1` |
-| Sachiel | Bunker | `192.225.3.130/26` | `192.225.3.129` |
-| Medic-Bay | Medic | `192.225.3.194/27` | `192.225.3.193` |
-| Pen-Pen | Medic | `192.225.3.195/27` | `192.225.3.193` |
-| Relay-Node | Relay | `192.225.3.226/27` | `192.225.3.225` |
-| Garden-Staff | Garden | `192.225.4.2/27` | `192.225.4.1` |
-| Dock-Crew | Dock | `192.225.4.34/28` | `192.225.4.33` |
-| Entry-Plug | Lab | `192.225.4.50/29` | `192.225.4.49` |
-| Dummy-Plug | Lab | `192.225.4.51/29` | `192.225.4.49` |
-| Magi-Casper | Terminal | `192.225.4.58/29` | `192.225.4.57` |
-| Magi-Balthasar | Terminal | `192.225.4.59/29` | `192.225.4.57` |
-| Magi-Melchior | Terminal | `192.225.4.60/29` | `192.225.4.57` |
-| Unit-01 | Cage | `192.225.4.66/29` | `192.225.4.65` |
-| Unit-02 | Cage | `192.225.4.67/29` | `192.225.4.65` |
-| Unit-00 | Cage | `192.225.4.68/29` | `192.225.4.65` |
-| Lilith | Dogma | `192.225.4.74/29` | `192.225.4.73` |
-| Adam | Dogma | `192.225.4.75/29` | `192.225.4.73` |
-| Zeruel | Monolith | `192.225.4.82/29` | `192.225.4.81` |
-| Armisael | Monolith | `192.225.4.83/29` | `192.225.4.81` |
-| Radar-Array | Radar | `192.225.4.90/29` | `192.225.4.89` |
-| Archive-Vault | Archive | `192.225.4.98/30` | `192.225.4.97` |
-| Spy | Intel | `192.225.4.102/30` | `192.225.4.101` |
-| Tokyo3-Core | Cmd | `192.225.4.106/30` | `192.225.4.105` |
+| Host           | Switch   | IP/Prefix          | Gateway         |
+| -------------- | -------- | ------------------ | --------------- |
+| Quarters       | Quarters | `192.225.0.2/23`   | `192.225.0.1`   |
+| Comm-Net       | Comm     | `192.225.2.2/24`   | `192.225.2.1`   |
+| Hangar-Crew    | Hangar   | `192.225.3.2/25`   | `192.225.3.1`   |
+| Sachiel        | Bunker   | `192.225.3.130/26` | `192.225.3.129` |
+| Medic-Bay      | Medic    | `192.225.3.194/27` | `192.225.3.193` |
+| Pen-Pen        | Medic    | `192.225.3.195/27` | `192.225.3.193` |
+| Relay-Node     | Relay    | `192.225.3.226/27` | `192.225.3.225` |
+| Garden-Staff   | Garden   | `192.225.4.2/27`   | `192.225.4.1`   |
+| Dock-Crew      | Dock     | `192.225.4.34/28`  | `192.225.4.33`  |
+| Entry-Plug     | Lab      | `192.225.4.50/29`  | `192.225.4.49`  |
+| Dummy-Plug     | Lab      | `192.225.4.51/29`  | `192.225.4.49`  |
+| Magi-Casper    | Terminal | `192.225.4.58/29`  | `192.225.4.57`  |
+| Magi-Balthasar | Terminal | `192.225.4.59/29`  | `192.225.4.57`  |
+| Magi-Melchior  | Terminal | `192.225.4.60/29`  | `192.225.4.57`  |
+| Unit-01        | Cage     | `192.225.4.66/29`  | `192.225.4.65`  |
+| Unit-02        | Cage     | `192.225.4.67/29`  | `192.225.4.65`  |
+| Unit-00        | Cage     | `192.225.4.68/29`  | `192.225.4.65`  |
+| Lilith         | Dogma    | `192.225.4.74/29`  | `192.225.4.73`  |
+| Adam           | Dogma    | `192.225.4.75/29`  | `192.225.4.73`  |
+| Zeruel         | Monolith | `192.225.4.82/29`  | `192.225.4.81`  |
+| Armisael       | Monolith | `192.225.4.83/29`  | `192.225.4.81`  |
+| Radar-Array    | Radar    | `192.225.4.90/29`  | `192.225.4.89`  |
+| Archive-Vault  | Archive  | `192.225.4.98/30`  | `192.225.4.97`  |
+| Spy            | Intel    | `192.225.4.102/30` | `192.225.4.101` |
+| Tokyo3-Core    | Cmd      | `192.225.4.106/30` | `192.225.4.105` |
 
 #### Verifikasi
 
-1. **IP interface:** `ip -br addr` pada setiap node, lalu cocokkan dengan tabel.
-2. **IP forwarding (router):** `cat /proc/sys/net/ipv4/ip_forward` harus bernilai `1`.
-3. **Ping dua ujung tiap link:** setiap router mem-ping IP ujung lawan dari link yang tersambung langsung, contohnya `ping -c2 192.225.4.114` dari Gendo. Total ada 16 link, jadi 32 ping.
-4. **Ping gateway (host):** tiap host mem-ping gateway-nya, dan host satu switch saling ping (Medic, Lab, Terminal, Cage, Dogma, Monolith).
+Verifikasi konfigurasi dilakukan melalui beberapa pengujian berikut.
 
-Bukti ping tiap router:
+1. **Pemeriksaan alamat IP interface**
 
-| Router | Ping ke |
-|---|---|
-| Gendo | `.118` (Yui), `.114` (Hikari), `.166` (Asuka), `.170` (Kaji), `.150` (Misato), `.158` (Shigeru), `.146` (Fuyutsuki) |
-| Yui | `.117` (Gendo), `.110` (Rei), `.138` (Mari), `.134` (Shinji) |
-| Hikari | `.113` (Gendo), `.130` (Kaworu) |
-| Fuyutsuki | `.145` (Gendo), `.154` (Toji), `.126` (Maya) |
-| Asuka | `.165` (Gendo), `.122` (Kensuke), `.142` (Ritsuko) |
-| Shigeru | `.157` (Gendo), `.162` (Makoto) |
-| Rei, Mari, Shinji | `.109`, `.137`, `.133` (Yui) |
-| Kaworu, Maya, Toji | `.129` (Hikari), `.125`, `.153` (Fuyutsuki) |
-| Kensuke, Ritsuko | `.121`, `.141` (Asuka) |
-| Kaji, Misato | `.169`, `.149` (Gendo) |
-| Makoto | `.161` (Shigeru) |
+   Perintah:
 
-(Semua IP berawalan `192.225.4.`)
+   ```bash
+   ip -br addr
+   ```
+
+   Perintah dijalankan pada setiap router dan host. Alamat IP yang muncul dicocokkan dengan tabel konfigurasi.
+
+2. **Pemeriksaan IP forwarding**
+
+   Perintah:
+
+   ```bash
+   cat /proc/sys/net/ipv4/ip_forward
+   ```
+
+   Pada seluruh router, hasil yang diharapkan adalah `1`, yang menunjukkan IP forwarding aktif.
+
+3. **Pengujian ping dua ujung link antar-router**
+
+   Setiap router melakukan ping ke alamat interface router tetangganya yang terhubung langsung. Karena terdapat 16 link antar-router, pengujian dilakukan dari kedua ujung sehingga terdapat 32 pengujian ping.
+
+4. **Pengujian konektivitas host dan gateway**
+
+   Setiap host melakukan ping ke default gateway masing-masing. Selain itu, host yang berada pada switch yang sama diuji agar dapat saling berkomunikasi.
+
+5. **Pengujian router ke host dalam satu LAN**
+
+   Router diuji dengan melakukan ping ke host yang berada pada jaringan lokal yang terhubung langsung.
+
+#### Tabel Tujuan Ping Antar-Router
+
+Seluruh alamat berikut menggunakan prefix `192.225.4.`.
+
+| Router    | Tujuan ping (alamat akhir dan tetangga)                                                                             |
+| --------- | ------------------------------------------------------------------------------------------------------------------- |
+| Gendo     | `.118` (Yui), `.114` (Hikari), `.166` (Asuka), `.170` (Kaji), `.150` (Misato), `.158` (Shigeru), `.146` (Fuyutsuki) |
+| Yui       | `.117` (Gendo), `.110` (Rei), `.138` (Mari), `.134` (Shinji)                                                        |
+| Hikari    | `.113` (Gendo), `.130` (Kaworu)                                                                                     |
+| Fuyutsuki | `.145` (Gendo), `.154` (Toji), `.126` (Maya)                                                                        |
+| Asuka     | `.165` (Gendo), `.122` (Kensuke), `.142` (Ritsuko)                                                                  |
+| Shigeru   | `.157` (Gendo), `.162` (Makoto)                                                                                     |
+| Rei       | `.109` (Yui)                                                                                                        |
+| Mari      | `.137` (Yui)                                                                                                        |
+| Shinji    | `.133` (Yui)                                                                                                        |
+| Kaworu    | `.129` (Hikari)                                                                                                     |
+| Maya      | `.125` (Fuyutsuki)                                                                                                  |
+| Toji      | `.153` (Fuyutsuki)                                                                                                  |
+| Kensuke   | `.121` (Asuka)                                                                                                      |
+| Ritsuko   | `.141` (Asuka)                                                                                                      |
+| Kaji      | `.169` (Gendo)                                                                                                      |
+| Misato    | `.149` (Gendo)                                                                                                      |
+| Makoto    | `.161` (Shigeru)                                                                                                    |
 
 #### Bukti Hasil
 
