@@ -1114,3 +1114,189 @@ Berdasarkan  konfigurasi routing statis dilakukan dengan mengatur default route 
 Route summarization diterapkan pada jaringan cabang Shigeru untuk mengurangi jumlah entri routing pada Gendo. Keberhasilan konfigurasi dibuktikan melalui pemeriksaan tabel routing dan pengujian konektivitas dari Armisael menuju Lilith, Sachiel, dan Comm-Net.
 
 **Catatan hasil:** Praktikum dinyatakan berhasil apabila seluruh pengujian ping mendapatkan balasan dan menunjukkan `0% packet loss`.
+
+### SOAL 4 — KONFIGURASI NAT DAN AKSES INTERNET MELALUI GENDO
+
+Mengonfigurasi Gendo sebagai router NAT agar seluruh jaringan internal dapat mengakses internet melalui NAT1. Konfigurasi menggunakan MASQUERADE agar tetap menyesuaikan alamat IP DHCP pada NAT1.
+
+#### Konfigurasi Manual NAT pada Gendo
+
+Konfigurasi dilakukan pada router Gendo agar seluruh jaringan internal dapat mengakses internet melalui interface NAT1 (`eth0`).
+
+**1. Mengaktifkan IP Forwarding**
+
+Pada Console Gendo, jalankan:
+
+```bash
+sysctl -w net.ipv4.ip_forward=1
+```
+
+Memastikan IP Forwarding aktif:
+
+```bash
+cat /proc/sys/net/ipv4/ip_forward
+```
+
+Hasil yang diharapkan adalah `1`.
+
+<img width="952" height="59" alt="image" src="https://github.com/user-attachments/assets/52e89075-5251-4588-89ec-46ea3631c893" />
+
+**2. Menambahkan aturan NAT**
+
+Menambahkan aturan MASQUERADE untuk jaringan internal `192.225.0.0/21` yang keluar melalui `eth0`.
+
+```bash
+iptables -t nat -A POSTROUTING \
+-s 192.225.0.0/21 \
+-o eth0 \
+-j MASQUERADE
+```
+
+**3. Memeriksa aturan NAT**
+
+```bash
+iptables -t nat -L POSTROUTING -n -v
+```
+
+Aturan MASQUERADE berhasil ditambahkan dengan source `192.225.0.0/21` dan interface keluar `eth0`.
+
+**Bukti:**
+
+<img width="959" height="70" alt="image" src="https://github.com/user-attachments/assets/d97cdc92-70e3-42cb-8328-f781c223fcc7" />
+
+####  Pengujian Akses Internet dan DNS
+
+Pengujian dilakukan pada Armisael dan Lilith untuk memastikan jaringan internal dapat mengakses internet dan melakukan resolusi domain.
+
+**1. Pengujian pada Armisael**
+
+Memeriksa gateway:
+
+```bash
+ping -c 4 192.225.4.81
+```
+
+Menguji koneksi internet:
+
+```bash
+ping -c 4 8.8.8.8
+```
+
+Mengatur DNS karena `/etc/resolv.conf` masih kosong:
+
+```bash
+echo "nameserver 192.168.122.1" > /etc/resolv.conf
+```
+
+Menguji resolusi dan koneksi domain:
+
+```bash
+getent hosts deb.debian.org
+ping -4 -c 4 deb.debian.org
+```
+
+Hasil pengujian menunjukkan gateway, koneksi internet, dan DNS berhasil.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/6f263dec-233a-4af4-8c94-80061b993d78" />
+
+**2. Pengujian pada Lilith**
+
+Memeriksa gateway:
+
+```bash
+ping -c 4 192.225.4.73
+```
+
+Menguji koneksi internet:
+
+```bash
+ping -c 4 8.8.8.8
+```
+
+Mengatur DNS:
+
+```bash
+echo "nameserver 192.168.122.1" > /etc/resolv.conf
+```
+
+Menguji resolusi dan koneksi domain:
+
+```bash
+getent hosts deb.debian.org
+ping -4 -c 4 deb.debian.org
+```
+
+Hasil pengujian menunjukkan gateway, koneksi internet, dan DNS berhasil.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/33129d79-f97d-4b29-a832-810d715eb95b" />
+
+#### Pembuatan dan Pengujian Script NAT Gendo
+
+Setelah konfigurasi manual berhasil, dibuat script agar konfigurasi NAT dapat diterapkan kembali dengan mudah.
+
+**1. Membuat script**
+
+Pada Console Gendo:
+
+```bash
+cat > /root/gendo_nat.sh <<'EOF'
+#!/bin/sh
+
+echo "===== AKTIFKAN IP FORWARDING ====="
+sysctl -w net.ipv4.ip_forward=1
+
+echo "===== KONFIGURASI NAT ====="
+iptables -t nat -C POSTROUTING \
+-s 192.225.0.0/21 -o eth0 -j MASQUERADE 2>/dev/null || \
+iptables -t nat -A POSTROUTING \
+-s 192.225.0.0/21 -o eth0 -j MASQUERADE
+
+echo "===== HASIL NAT ====="
+iptables -t nat -L POSTROUTING -n -v
+
+echo "Konfigurasi NAT Gendo selesai."
+EOF
+```
+
+**2. Menjalankan script**
+
+```bash
+chmod +x /root/gendo_nat.sh
+/root/gendo_nat.sh
+```
+
+Script berhasil dijalankan, IP Forwarding aktif, dan aturan NAT tetap satu sehingga tidak terjadi duplikasi.
+
+**Bukti:**
+
+<img width="959" height="138" alt="image" src="https://github.com/user-attachments/assets/857d8623-b72d-4266-8a77-bacfbac56486" />
+
+#### Verifikasi Counter NAT
+
+Pemeriksaan dilakukan pada Console Gendo untuk memastikan paket dari jaringan internal telah melewati aturan NAT.
+
+```bash
+iptables -t nat -L POSTROUTING -n -v
+```
+
+Hasil pengujian menunjukkan:
+
+- Paket yang melewati NAT: **11 packets**
+- Data yang diproses: **804 bytes**
+- Target: `MASQUERADE`
+- Interface keluar: `eth0`
+- Source: `192.225.0.0/21`
+
+**Bukti:**
+
+<img width="959" height="56" alt="image" src="https://github.com/user-attachments/assets/5ba26b5f-45bb-4c27-b085-d1e08326a548" />
+
+#### Kesimpulan
+
+Konfigurasi NAT pada router Gendo berhasil dilakukan menggunakan MASQUERADE melalui interface NAT1 (`eth0`). IP Forwarding berhasil diaktifkan sehingga jaringan internal dapat mengakses internet.
+
+Pengujian pada Armisael dan Lilith menunjukkan koneksi ke `8.8.8.8` serta domain `deb.debian.org` berhasil tanpa packet loss. Counter NAT juga menunjukkan 11 paket dan 804 bytes telah diproses. Dengan demikian, konfigurasi dan pengujian utama Soal 4 berhasil dilakukan.
