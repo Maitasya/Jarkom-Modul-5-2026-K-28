@@ -1030,6 +1030,7 @@ ip route
 
 **Screenshot:**
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/8e5d1ee1-b674-40c1-87fe-457c8a363173" />
 
 #### Bukti 2 — Tabel Routing Router Cabang
 
@@ -1043,6 +1044,7 @@ ip route
 
 **Screenshot:**
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/f7bbbb28-b3e2-4937-98d6-fe898d5293f8" />
 
 #### Bukti 3 — Konfigurasi IP dan Gateway Armisael
 
@@ -1057,7 +1059,7 @@ ip route
 
 **Screenshot:**
 
-
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/e53f970b-befa-46aa-8602-2aa823b458bc" />
 
 #### Bukti 4 — Pengujian Armisael ke Lilith
 
@@ -1071,6 +1073,7 @@ ping -c 4 192.225.4.74
 
 **Screenshot:**
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/4a961155-68b6-4dd6-9d65-03381e64652f" />
 
 #### Bukti 5 — Pengujian Armisael ke Sachiel
 
@@ -1084,7 +1087,7 @@ ping -c 4 192.225.3.130
 
 **Screenshot:**
 
-
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/9afc2a00-29f2-48b7-b623-6efa86a00096" />
 
 #### Bukti 6 — Pengujian Armisael ke Comm-Net
 
@@ -1098,7 +1101,11 @@ ping -c 4 192.225.2.2
 
 **Screenshot:**
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/8a18687b-e9a5-4928-be06-49b97d3a80f0" />
 
+HASIL:
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/b37ad9ac-1d32-44c0-bae4-463a52f0e2c9" />
 
 #### Kesimpulan
 
