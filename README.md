@@ -1,4 +1,4 @@
-<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/d6837562-8a69-484b-9bd0-595804c52007" /><img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/3479012a-6f64-4389-8ab6-a66d9ba6f34b" />﻿## Jarkom-Modul-5-2026-K-28
+﻿## Jarkom-Modul-5-2026-K-28
 
 | Nama | NRP |
 |---|---|
