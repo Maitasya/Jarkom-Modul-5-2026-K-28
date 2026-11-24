@@ -2255,3 +2255,220 @@ Kedua hasil menunjukkan bahwa port 22 tidak menyediakan layanan dan koneksi lang
 #### Kesimpulan
 
 Konfigurasi layanan TCP pada Pen-Pen dan Tokyo3-Core berhasil dilakukan secara manual dan menggunakan script. Pen-Pen berhasil menyediakan layanan port 80 dengan pesan `Welcome to Pen-Pen`. Tokyo3-Core berhasil menyediakan layanan port 80 dengan pesan `Welcome to Tokyo3-Core` dan port 8080 dengan pesan `syifa imutz`. Seluruh layanan berhasil diuji dari Lilith dengan status koneksi berhasil. Pengujian port 22 pada kedua node menghasilkan `Connection refused`, sesuai dengan ketentuan soal. Dengan demikian, seluruh konfigurasi dan pengujian Soal 8 berhasil diselesaikan.
+
+### SOAL 9 — PERBAIKAN SABOTASE STATIC ROUTING PADA SHIGERU
+
+Pada Soal 9 dilakukan pengujian sabotase dan perbaikan konfigurasi routing pada node Shigeru. Sabotase menyebabkan Lilith tidak dapat berkomunikasi dengan Armisael, meskipun Armisael masih dapat melakukan ping ke gateway-nya sendiri.
+
+#### Menjalankan Script Sabotase
+
+Sesuai instruksi soal, script sabotase `break_routing.sh` dijalankan pada Console Shigeru tanpa membaca isi script terlebih dahulu.
+
+**1. Memberikan izin eksekusi dan menjalankan script sabotase**
+
+```bash
+chmod +x /root/break_routing.sh
+/root/break_routing.sh
+```
+
+Script tersebut dijalankan untuk merusak konfigurasi routing pada Shigeru.
+
+[menjalankan script sabotase pada Shigeru]
+
+<img width="959" height="47" alt="image" src="https://github.com/user-attachments/assets/9790a5a0-c1d6-4b1f-baf2-6dea3c87f99c" />
+
+**2. Memeriksa gejala setelah sabotase**
+
+Pada Console Shigeru:
+
+```bash
+ip -br addr
+ip route
+ip rule show
+sysctl net.ipv4.ip_forward
+```
+
+[hasil identifikasi kerusakan routing pada Shigeru]
+
+<img width="959" height="272" alt="image" src="https://github.com/user-attachments/assets/c2275929-816b-4c92-8d3a-336ad0db74c1" />
+
+Hasil pemeriksaan menunjukkan beberapa kerusakan, yaitu:
+- IP forwarding dalam kondisi nonaktif (`0`).
+- Terdapat rute `blackhole` menuju jaringan Lilith `192.225.4.72/29`.
+- Terdapat policy routing dengan priority `90` yang mengarahkan paket dari `eth2` ke routing table 100.
+- Routing table 100 memiliki rute `unreachable default`.
+
+**3. Menguji konektivitas sebelum perbaikan**
+
+Pada Console Lilith:
+
+```bash
+ping -c 4 -W 2 192.225.4.83
+```
+
+<img width="959" height="89" alt="image" src="https://github.com/user-attachments/assets/79bce721-bd73-4a6e-82fc-55ad8b0b8592" />
+
+Hasil pengujian menunjukkan koneksi gagal dengan 100% packet loss. Hal ini membuktikan bahwa komunikasi dari Lilith menuju Armisael terputus akibat kerusakan routing pada Shigeru.
+
+#### Perbaikan Routing Secara Manual
+
+Perbaikan dilakukan melalui Console Shigeru dengan menghapus konfigurasi yang bermasalah dan mengembalikan jalur routing.
+
+**1. Menghapus rute blackhole**
+
+```bash
+ip route del blackhole 192.225.4.72/29
+```
+
+Perintah ini menghapus rute yang menyebabkan paket menuju jaringan Lilith dibuang.
+
+**2. Menghapus policy routing yang bermasalah**
+
+```bash
+ip rule del priority 90
+```
+
+Perintah ini menghapus aturan policy routing yang mengarahkan paket dari `eth2` ke routing table 100.
+
+**3. Membersihkan routing table 100**
+
+```bash
+ip route flush table 100
+```
+
+Perintah ini menghapus rute `unreachable default` pada routing table 100.
+
+**4. Menambahkan rute menuju jaringan Lilith**
+
+```bash
+ip route replace 192.225.4.72/29 via 192.225.4.157 dev eth0
+```
+
+Rute tersebut mengarahkan komunikasi menuju jaringan Lilith melalui gateway `192.225.4.157` pada interface `eth0`.
+
+**5. Mengaktifkan IP forwarding**
+
+```bash
+echo 1 > /proc/sys/net/ipv4/ip_forward
+```
+
+IP forwarding diaktifkan agar Shigeru dapat meneruskan paket antarjaringan.
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/9c01835b-6c4a-47c4-b2ae-7cc75712d127" />
+
+<img width="959" height="157" alt="image" src="https://github.com/user-attachments/assets/8dc80ff3-c409-4587-b566-10ad3b8d044b" />
+
+#### Perbaikan Routing Menggunakan Script
+
+Setelah perbaikan manual, dibuat script `perbaikan_shigeru.sh` untuk menjalankan seluruh proses perbaikan secara otomatis pada node Shigeru.
+
+**1. Membuat script perbaikan**
+
+Pada Console Shigeru:
+
+```bash
+cat > /root/perbaikan_shigeru.sh <<'EOF'
+#!/bin/sh
+
+echo "======================================"
+echo " PERBAIKAN ROUTING SHIGERU - SOAL 9"
+echo "======================================"
+
+if [ "$(id -u)" != 0 ]; then
+    echo "ERROR: Script harus dijalankan sebagai root."
+    exit 1
+fi
+
+case "$(hostname)" in
+    *[Ss]higeru*) ;;
+    *)
+        echo "ERROR: Script ini hanya untuk Shigeru."
+        exit 1
+        ;;
+esac
+
+echo "[1] Menghapus rute blackhole..."
+ip route del blackhole 192.225.4.72/29 2>/dev/null
+
+echo "[2] Menghapus policy routing priority 90..."
+ip rule del priority 90 2>/dev/null
+
+echo "[3] Membersihkan routing table 100..."
+ip route flush table 100
+
+echo "[4] Memperbaiki rute menuju jaringan Lilith..."
+ip route replace 192.225.4.72/29 via 192.225.4.157 dev eth0
+
+echo "[5] Mengaktifkan IP forwarding..."
+sysctl -w net.ipv4.ip_forward=1
+
+echo ""
+echo "=== HASIL ROUTING ==="
+ip route
+
+echo ""
+echo "=== HASIL POLICY ROUTING ==="
+ip rule show
+
+echo ""
+echo "=== STATUS IP FORWARDING ==="
+sysctl net.ipv4.ip_forward
+
+echo ""
+echo "=== PERBAIKAN SHIGERU SELESAI ==="
+EOF
+```
+
+**2. Memberikan izin eksekusi dan menjalankan script**
+
+```bash
+chmod +x /root/perbaikan_shigeru.sh
+/root/perbaikan_shigeru.sh
+```
+
+Script tersebut menghapus rute dan aturan yang bermasalah, memperbaiki rute menuju jaringan Lilith, serta mengaktifkan IP forwarding.
+
+
+**3. Memeriksa hasil perbaikan**
+
+```bash
+ip route
+ip rule show
+ip route show table 100
+sysctl net.ipv4.ip_forward
+```
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/dc020909-a242-4616-b1b2-b759cc83a765" />
+
+Hasil yang diharapkan:
+- Rute menuju `192.225.4.72/29` menggunakan gateway `192.225.4.157` melalui `eth0`.
+- Rute `blackhole` sudah tidak ada.
+- Policy routing priority 90 sudah tidak ada.
+- Routing table 100 sudah kosong.
+- IP forwarding bernilai `1`.
+
+#### Pengujian Konektivitas Lilith ke Armisael
+
+Pengujian dilakukan untuk memastikan komunikasi antarjaringan kembali berjalan setelah perbaikan.
+
+**1. Menguji koneksi dari Lilith ke Armisael**
+
+Pada Console Lilith:
+
+```bash
+ping -c 4 -W 2 192.225.4.83
+```
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/55389e8f-7fbb-42a2-adbe-af4002e00521" />
+
+Hasil pengujian menunjukkan:
+
+```text
+4 packets transmitted, 4 received, 0% packet loss
+```
+
+Artinya, Lilith berhasil berkomunikasi kembali dengan Armisael setelah konfigurasi routing pada Shigeru diperbaiki.
+
+#### Kesimpulan
+
+Sabotase pada Soal 
