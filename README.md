@@ -1300,3 +1300,203 @@ Hasil pengujian menunjukkan:
 Konfigurasi NAT pada router Gendo berhasil dilakukan menggunakan MASQUERADE melalui interface NAT1 (`eth0`). IP Forwarding berhasil diaktifkan sehingga jaringan internal dapat mengakses internet.
 
 Pengujian pada Armisael dan Lilith menunjukkan koneksi ke `8.8.8.8` serta domain `deb.debian.org` berhasil tanpa packet loss. Counter NAT juga menunjukkan 11 paket dan 804 bytes telah diproses. Dengan demikian, konfigurasi dan pengujian utama Soal 4 berhasil dilakukan.
+
+### SOAL 5 — KONFIGURASI FIREWALL DAN PEMBATASAN AKSES PADA GENDO
+
+Mengonfigurasi firewall pada router Gendo agar koneksi baru dari NAT1 tidak dapat masuk, tetapi jaringan internal tetap dapat mengakses internet, berkomunikasi antar-LAN, dan mengakses Gendo. Konfigurasi menggunakan policy DROP dengan aturan ACCEPT untuk traffic yang diizinkan.
+
+#### Konfigurasi Manual Firewall pada Gendo
+
+Konfigurasi dilakukan pada Console Gendo dengan mengubah policy INPUT dan FORWARD menjadi DROP serta menambahkan aturan untuk traffic yang diperbolehkan.
+
+**1. Membersihkan aturan filter lama**
+
+```bash
+iptables -F INPUT
+iptables -F FORWARD
+```
+
+**2. Mengizinkan loopback dan koneksi balasan**
+
+```bash
+iptables -A INPUT -i lo -j ACCEPT
+
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+```
+
+Aturan ini mengizinkan komunikasi loopback serta paket balasan dari koneksi yang sudah terbentuk.
+
+**3. Mengizinkan DHCP dari NAT1**
+
+```bash
+iptables -A INPUT -i eth0 -p udp --sport 67 --dport 68 -j ACCEPT
+```
+
+Aturan ini mempertahankan penerimaan balasan DHCP dari NAT1 agar alamat IP Gendo tetap dapat diperoleh secara dinamis.
+
+**4. Mengizinkan traffic jaringan internal**
+
+Mengizinkan jaringan internal mengakses internet melalui NAT1:
+
+```bash
+iptables -A FORWARD -s 192.225.0.0/21 -o eth0 -j ACCEPT
+```
+
+Mengizinkan komunikasi antar-LAN:
+
+```bash
+iptables -A FORWARD -s 192.225.0.0/21 -d 192.225.0.0/21 -j ACCEPT
+```
+
+Mengizinkan jaringan internal mengakses Gendo:
+
+```bash
+iptables -A INPUT -s 192.225.0.0/21 -j ACCEPT
+```
+
+**5. Mengubah default policy menjadi DROP**
+
+```bash
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+```
+
+Dengan konfigurasi tersebut, koneksi baru dari sisi NAT1 ditolak, sedangkan traffic yang telah diizinkan tetap berjalan.
+
+**6. Memeriksa aturan firewall**
+
+```bash
+iptables -S
+```
+
+Hasil pemeriksaan menunjukkan:
+
+```text
+-P INPUT DROP
+-P FORWARD DROP
+-P OUTPUT ACCEPT
+```
+
+Aturan ACCEPT untuk loopback, koneksi balasan, DHCP, dan jaringan internal juga berhasil ditambahkan.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/9c9b1090-70a9-49b4-90ea-de128e2aa732" />
+
+#### Pengujian Firewall dan Koneksi Internet
+
+Pengujian dilakukan untuk memastikan firewall tidak mengganggu akses internet dari jaringan internal.
+
+**1. Pengujian pada Armisael**
+
+Pada Console Armisael, jalankan:
+
+```bash
+ping -c 4 8.8.8.8
+```
+
+Hasil pengujian menunjukkan koneksi internet tetap berhasil dengan 4 paket diterima dan 0% packet loss.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/da863cae-23e4-44af-bb82-9135b38c134e" />
+
+#### Pembuatan dan Pengujian Script Firewall Gendo
+
+Setelah konfigurasi manual berhasil, konfigurasi firewall dan NAT dimasukkan ke dalam script agar dapat diterapkan kembali dengan mudah.
+
+**1. Membuat script**
+
+Pada Console Gendo, script disimpan dengan nama `/root/gendo-firewall.sh`.
+
+```bash
+cat > /root/gendo-firewall.sh <<'EOF'
+#!/bin/sh
+
+echo "===== AKTIFKAN IP FORWARDING ====="
+sysctl -w net.ipv4.ip_forward=1
+
+echo "===== KONFIGURASI NAT ====="
+iptables -t nat -C POSTROUTING \
+-s 192.225.0.0/21 -o eth0 -j MASQUERADE 2>/dev/null || \
+iptables -t nat -A POSTROUTING \
+-s 192.225.0.0/21 -o eth0 -j MASQUERADE
+
+echo "===== RESET FILTER ====="
+iptables -F INPUT
+iptables -F FORWARD
+
+echo "===== IZINKAN LOOPBACK ====="
+iptables -A INPUT -i lo -j ACCEPT
+
+echo "===== IZINKAN KONEKSI BALASAN ====="
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+echo "===== IZINKAN DHCP NAT1 ====="
+iptables -A INPUT -i eth0 -p udp --sport 67 --dport 68 -j ACCEPT
+
+echo "===== IZINKAN INTERNAL KE INTERNET ====="
+iptables -A FORWARD -s 192.225.0.0/21 -o eth0 -j ACCEPT
+
+echo "===== IZINKAN ANTAR-LAN ====="
+iptables -A FORWARD -s 192.225.0.0/21 -d 192.225.0.0/21 -j ACCEPT
+
+echo "===== IZINKAN INTERNAL KE GENDO ====="
+iptables -A INPUT -s 192.225.0.0/21 -j ACCEPT
+
+echo "===== DEFAULT POLICY ====="
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+
+echo "===== HASIL FIREWALL ====="
+iptables -S
+
+echo "===== HASIL NAT ====="
+iptables -t nat -S
+
+echo "Konfigurasi firewall Gendo selesai."
+EOF
+```
+
+**2. Menjalankan script**
+
+Memberikan izin eksekusi dan menjalankan script:
+
+```bash
+chmod +x /root/gendo-firewall.sh
+/root/gendo-firewall.sh
+```
+
+Script mengaktifkan IP Forwarding, mempertahankan aturan NAT Soal 4, dan menerapkan aturan firewall dengan policy DROP. Konfigurasi IP dan static routing dari soal sebelumnya tetap dipertahankan.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/cdb5ad3f-2848-42a1-bc16-b557058fe078" />
+
+#### Verifikasi Aturan Firewall
+
+Pemeriksaan akhir dilakukan pada Console Gendo menggunakan perintah:
+
+```bash
+iptables -S
+```
+
+Memeriksa aturan NAT agar konfigurasi Soal 4 tetap berjalan:
+
+```bash
+iptables -t nat -L POSTROUTING -n -v
+```
+
+Hasil yang diharapkan menunjukkan policy INPUT dan FORWARD tetap DROP, sedangkan aturan MASQUERADE tetap tersedia melalui eth0.
+
+**Bukti:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/fb7cd743-3590-4b77-bd93-b77d37019537" />
+
+#### Kesimpulan
+
+Konfigurasi firewall pada router Gendo berhasil dilakukan dengan menerapkan policy DROP pada INPUT dan FORWARD. Aturan ACCEPT ditambahkan untuk mengizinkan loopback, DHCP NAT1, koneksi balasan, akses jaringan internal ke internet, komunikasi antar-LAN, serta akses internal ke Gendo. Pengujian dari Armisael menunjukkan koneksi ke 8.8.8.8 tetap berhasil dengan 0% packet loss. Dengan demikian, firewall berhasil membatasi koneksi baru dari NAT1 tanpa mengganggu akses jaringan internal.
