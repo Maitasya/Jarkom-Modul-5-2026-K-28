@@ -1978,3 +1978,276 @@ Hasil menunjukkan port 5000 berstatus `LISTEN` dan pesan dari Lilith berhasil di
 #### Kesimpulan
 
 Aktivasi MAGI-Casper, MAGI-Balthasar, dan MAGI-Melchior berhasil dilakukan melalui instalasi `iptables` dan `netcat-traditional`, kemudian menjalankan TCP listener sesuai port yang ditentukan. Pengerjaan dilakukan secara manual dan dilanjutkan menggunakan script terpisah untuk instalasi serta aktivasi listener pada setiap node. Lilith berhasil mengirimkan empat pesan ke ketiga MAGI, termasuk dua pesan ke MAGI-Balthasar melalui port 5000 dan 5001. Seluruh pengiriman menghasilkan `exit=0` dan pesan berhasil ditampilkan pada log masing-masing node. Dengan demikian, seluruh tahapan Soal 7 berhasil diselesaikan tanpa menerapkan aturan firewall, sesuai instruksi soal.
+
+### SOAL 8 — KONFIGURASI LAYANAN TCP MENGGUNAKAN NETCAT PADA PEN-PEN DAN TOKYO3-CORE
+
+Mengonfigurasi layanan TCP menggunakan Netcat pada node Pen-Pen dan Tokyo3-Core. Pen-Pen menyediakan layanan pada port 80 dengan pesan `Welcome to Pen-Pen`, sedangkan Tokyo3-Core menyediakan layanan pada port 80 dengan pesan `Welcome to Tokyo3-Core` dan port 8080 dengan pesan `syifa imutz`. Pengujian dilakukan dari node Lilith menggunakan Netcat. Selain itu, port 22 diuji untuk memastikan koneksi langsung ditolak karena tidak menyediakan layanan.
+
+#### Konfigurasi Layanan TCP Secara Manual
+
+Konfigurasi manual dilakukan melalui Console masing-masing node dengan menjalankan Netcat sebagai listener pada port yang ditentukan.
+
+**1. Memeriksa Netcat**
+
+Pada Console Pen-Pen dan Tokyo3-Core:
+
+```bash
+command -v nc
+command -v nc.openbsd
+command -v nc.traditional
+```
+
+Hasil pemeriksaan menunjukkan kedua node memiliki Netcat OpenBSD (`/usr/bin/nc.openbsd`), sehingga tidak perlu menginstal Netcat tambahan.
+
+**2. Menjalankan layanan pada Pen-Pen**
+
+Pada Console Pen-Pen, jalankan:
+
+```bash
+while true; do
+    printf "Welcome to Pen-Pen\n" | nc.openbsd -l -n -p 80
+done
+```
+
+Perintah tersebut menjalankan listener pada port 80 dan mengirimkan pesan `Welcome to Pen-Pen` ketika menerima koneksi.
+
+**3. Menjalankan layanan pada Tokyo3-Core**
+
+Pada Console Tokyo3-Core, jalankan layanan port 80:
+
+```bash
+while true; do
+    printf "Welcome to Tokyo3-Core\n" | nc.openbsd -l -n -p 80
+done
+```
+
+Kemudian, jalankan layanan port 8080:
+
+```bash
+while true; do
+    printf "syifa imutz\n" | nc.openbsd -l -n -p 8080
+done
+```
+
+Kedua layanan dijalankan secara terpisah agar masing-masing port dapat menerima koneksi.
+
+**4. Memeriksa status listener**
+
+Pada Pen-Pen:
+
+```bash
+ss -ltn | grep ':80 '
+```
+
+Pada Tokyo3-Core:
+
+```bash
+ss -ltn | grep -E ':80 |:8080 '
+```
+
+Hasil pemeriksaan menunjukkan port 80 pada Pen-Pen serta port 80 dan 8080 pada Tokyo3-Core berstatus `LISTEN`.
+
+**Bukti:**
+
+[Tempel screenshot konfigurasi manual dan status listener Pen-Pen]
+
+[Tempel screenshot konfigurasi manual dan status listener Tokyo3-Core]
+
+#### Konfigurasi Layanan TCP Menggunakan Script
+
+Setelah konfigurasi manual, dibuat script terpisah agar layanan dapat dijalankan dengan lebih mudah dan konsisten. Script menggunakan `nc.openbsd` yang telah tersedia pada masing-masing node.
+
+**1. Membuat script layanan Pen-Pen**
+
+Pada Console Pen-Pen:
+
+```bash
+cat > /root/pen-pen_service.sh <<'EOF'
+#!/bin/sh
+
+NC="/usr/bin/nc.openbsd"
+
+echo "=== LAYANAN PEN-PEN ==="
+
+if [ ! -x "$NC" ]; then
+    echo "ERROR: Netcat tidak ditemukan"
+    exit 1
+fi
+
+if ss -ltn | grep -qE ':80[[:space:]]'; then
+    echo "Port 80 sudah digunakan!"
+    exit 1
+fi
+
+nohup sh -c '
+while true; do
+    printf "Welcome to Pen-Pen\n" |
+    /usr/bin/nc.openbsd -l -n -p 80
+done
+' >/root/penpen-port80.log 2>&1 </dev/null &
+
+sleep 2
+
+echo "=== STATUS PORT 80 ==="
+ss -ltn | grep ':80 '
+
+echo "Layanan Pen-Pen selesai."
+EOF
+```
+
+**2. Membuat script layanan Tokyo3-Core**
+
+Pada Console Tokyo3-Core:
+
+```bash
+cat > /root/tokyo3-core_service.sh <<'EOF'
+#!/bin/sh
+
+NC="/usr/bin/nc.openbsd"
+
+echo "=== LAYANAN TOKYO3-CORE ==="
+
+if [ ! -x "$NC" ]; then
+    echo "ERROR: Netcat tidak ditemukan"
+    exit 1
+fi
+
+if ! ss -ltn | grep -qE ':80[[:space:]]'; then
+    nohup sh -c '
+    while true; do
+        printf "Welcome to Tokyo3-Core\n" |
+        /usr/bin/nc.openbsd -l -n -p 80
+    done
+    ' >/root/tokyo-port80.log 2>&1 </dev/null &
+fi
+
+if ! ss -ltn | grep -qE ':8080[[:space:]]'; then
+    nohup sh -c '
+    while true; do
+        printf "syifa imutz\n" |
+        /usr/bin/nc.openbsd -l -n -p 8080
+    done
+    ' >/root/tokyo-port8080.log 2>&1 </dev/null &
+fi
+
+sleep 2
+
+echo "=== STATUS PORT 80 DAN 8080 ==="
+ss -ltn | grep -E ':80[[:space:]]|:8080[[:space:]]'
+
+echo "Layanan Tokyo3-Core selesai."
+EOF
+```
+
+**3. Memberikan izin eksekusi dan menjalankan script**
+
+Pada Pen-Pen:
+
+```bash
+chmod +x /root/pen-pen_service.sh
+/root/pen-pen_service.sh
+```
+
+Pada Tokyo3-Core:
+
+```bash
+chmod +x /root/tokyo3-core_service.sh
+/root/tokyo3-core_service.sh
+```
+
+Script menjalankan listener di latar belakang menggunakan `nohup`, sehingga layanan tetap berjalan meskipun console ditinggalkan.
+
+**4. Memeriksa hasil konfigurasi**
+
+Pada Pen-Pen:
+
+```bash
+ss -ltn | grep ':80 '
+```
+
+Pada Tokyo3-Core:
+
+```bash
+ss -ltn | grep -E ':80 |:8080 '
+```
+
+Hasil pemeriksaan menunjukkan seluruh port layanan berstatus `LISTEN`.
+
+**Bukti:**
+
+[hasil eksekusi Pen-Pen]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/0716b2cf-be2d-4f07-9680-59e78c014269" />
+
+[hasil eksekusi Tokyo3-Core]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/717ee72c-db93-4831-af0a-df382e2afe67" />
+
+#### Pengujian Layanan TCP dari Lilith
+
+Pengujian dilakukan melalui Console Lilith menggunakan script `/root/lilith_test_soal8.sh`. Pengujian bertujuan memastikan ketiga layanan dapat diakses dan port 22 tidak menerima koneksi.
+
+**1. Menjalankan script pengujian**
+
+Pada Console Lilith:
+
+```bash
+chmod +x /root/lilith_test_soal8.sh
+/root/lilith_test_soal8.sh
+```
+
+**2. Hasil pengujian layanan Pen-Pen**
+
+Pengujian dilakukan menuju alamat `192.225.3.195` pada port 80.
+
+Hasil yang diperoleh:
+
+```text
+(UNKNOWN) [192.225.3.195] 80 (http) open
+Welcome to Pen-Pen
+Status koneksi: 0
+```
+
+**3. Hasil pengujian layanan Tokyo3-Core**
+
+Pengujian menuju alamat `192.225.4.106` pada port 80 dan 8080.
+
+Hasil yang diperoleh:
+
+```text
+(UNKNOWN) [192.225.4.106] 80 (http) open
+Welcome to Tokyo3-Core
+Status koneksi: 0
+```
+
+```text
+(UNKNOWN) [192.225.4.106] 8080 (http-alt) open
+syifa imutz
+Status koneksi: 0
+```
+
+**4. Pengujian port 22**
+
+Pengujian dilakukan pada port 22 Pen-Pen dan Tokyo3-Core untuk memastikan port yang tidak menyediakan layanan langsung menolak koneksi.
+
+Hasil pengujian:
+
+```text
+192.225.3.195 port 22:
+Connection refused
+
+192.225.4.106 port 22:
+Connection refused
+```
+
+Kedua hasil menunjukkan bahwa port 22 tidak menyediakan layanan dan koneksi langsung ditolak.
+
+**Bukti:**
+
+[hasil pengujian lengkap dari Console Lilith]
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/304dccf9-950e-4aec-8773-39c96230912b" />
+
+#### Kesimpulan
+
+Konfigurasi layanan TCP pada Pen-Pen dan Tokyo3-Core berhasil dilakukan secara manual dan menggunakan script. Pen-Pen berhasil menyediakan layanan port 80 dengan pesan `Welcome to Pen-Pen`. Tokyo3-Core berhasil menyediakan layanan port 80 dengan pesan `Welcome to Tokyo3-Core` dan port 8080 dengan pesan `syifa imutz`. Seluruh layanan berhasil diuji dari Lilith dengan status koneksi berhasil. Pengujian port 22 pada kedua node menghasilkan `Connection refused`, sesuai dengan ketentuan soal. Dengan demikian, seluruh konfigurasi dan pengujian Soal 8 berhasil diselesaikan.
