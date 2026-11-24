@@ -155,6 +155,60 @@ Mengonfigurasi alamat IP pada seluruh interface router (17 router) dan host (25 
 - Switch GNS3 tidak perlu dikonfigurasi.
 - Ping antar-LAN belum bisa dilakukan sampai routing statis dikerjakan (soal 3).
 
+  #### Konfigurasi DHCP pada Gendo
+
+Gendo merupakan satu-satunya router yang terhubung langsung ke NAT1 melalui interface `eth0`. Oleh karena itu, alamat IP pada interface tersebut diperoleh secara otomatis menggunakan DHCP, bukan dikonfigurasi secara manual.
+
+Langkah konfigurasi DHCP dilakukan sebagai berikut:
+
+**1. Memasang DHCP Client**
+
+Sebelum meminta alamat IP dari NAT1, DHCP Client dipasang pada Gendo menggunakan perintah:
+
+```bash
+apt update
+apt install isc-dhcp-client -y
+```
+
+**2. Meminta alamat IP melalui DHCP**
+
+Setelah DHCP Client berhasil dipasang, jalankan perintah berikut:
+
+```bash
+dhclient -v eth0
+```
+
+Gendo kemudian mengirimkan permintaan DHCP kepada NAT1. NAT1 memberikan alamat IP `192.168.122.162/24` dan menyetujui permintaan tersebut melalui DHCPACK.
+
+**3. Memeriksa alamat IP dan default gateway**
+
+Untuk memastikan alamat IP berhasil diperoleh secara otomatis, jalankan:
+
+```bash
+ip -4 addr show dev eth0
+ip route show default
+```
+
+Hasil konfigurasi menunjukkan:
+- IP address: `192.168.122.162/24`
+- Default gateway: `192.168.122.1`
+- Interface: `eth0`
+
+Alamat `192.168.122.162` diperoleh melalui DHCP, sedangkan alamat IP sementara yang sebelumnya dikonfigurasi secara manual telah dihapus.
+
+**4. Menguji konektivitas NAT1 dan internet**
+
+Pengujian dilakukan menggunakan perintah:
+
+```bash
+ping -c 4 192.168.122.1
+ping -c 4 8.8.8.8
+```
+
+Kedua pengujian berhasil dengan 4 paket terkirim, 4 paket diterima, dan 0% packet loss.
+
+Dengan demikian, Gendo berhasil memperoleh alamat IP secara otomatis dari NAT1 dan dapat terhubung ke jaringan luar.
+
 #### Cara Menjalankan Skrip
 
 1. Pastikan kabel di GNS3 sesuai topologi. Switch-Comm harus tersambung ke **Hikari eth2**, bukan ke Kaworu.
@@ -399,6 +453,30 @@ Perintah: `ip -br addr` dan `cat /proc/sys/net/ipv4/ip_forward`
 
 <img width="960" height="516" alt="Screenshot 2026-11-24 123629" src="https://github.com/user-attachments/assets/07af713c-1b68-4908-8ac3-47c96f057a35" />
 
+**7. Konfigurasi DHCP pada Gendo**
+
+Perintah yang digunakan:
+
+```bash
+dhclient -v eth0
+ip -4 addr show dev eth0
+ip route show default
+ping -c 4 192.168.122.1
+ping -c 4 8.8.8.8
+```
+
+Hasil pengujian menunjukkan Gendo berhasil memperoleh IP `192.168.122.162/24` dari NAT1 melalui DHCP. Default gateway menggunakan `192.168.122.1`. Pengujian ping ke gateway NAT1 dan alamat internet `8.8.8.8` juga berhasil tanpa packet loss.
+
+**Dokumentasi hasil konfigurasi DHCP:**
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/36625af1-aaa1-4b87-ac72-63a69563dd07" />
+
 #### Kesimpulan
 
-Seluruh 17 router dan 25 host berhasil dikonfigurasi sesuai pembagian VLSM pada soal 1. IP forwarding aktif di semua router, dan ping ke kedua ujung 16 link antar-router berhasil (`OK`). Setiap host dapat menjangkau gateway-nya. Konektivitas antar-LAN baru dapat dilakukan setelah routing statis pada soal 3.
+Berdasarkan konfigurasi yang telah dilakukan, seluruh router dan host dirancang menggunakan pembagian alamat IP sesuai hasil VLSM pada Soal 1. IP forwarding diaktifkan pada router agar dapat meneruskan paket antar-interface.
+
+Khusus Gendo, interface `eth0` memperoleh alamat IP secara otomatis melalui DHCP dari NAT1, yaitu `192.168.122.162/24`, dengan default gateway `192.168.122.1`. Konektivitas ke gateway NAT1 dan jaringan luar berhasil dibuktikan melalui pengujian ping.
+
+Pengujian konektivitas juga dilakukan pada link antar-router dan jaringan lokal untuk memastikan setiap perangkat dapat berkomunikasi dengan perangkat yang terhubung langsung. Routing antar-LAN selanjutnya dikonfigurasi pada Soal 3.
+
+
