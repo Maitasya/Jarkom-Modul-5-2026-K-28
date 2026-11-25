@@ -2471,4 +2471,375 @@ Artinya, Lilith berhasil berkomunikasi kembali dengan Armisael setelah konfigura
 
 #### Kesimpulan
 
-Sabotase pada Soal 
+Sabotase pada Soal 9 menyebabkan komunikasi antara Lilith dan Armisael terputus akibat IP forwarding yang dinonaktifkan, rute blackhole menuju jaringan Lilith, serta policy routing yang mengarahkan paket ke routing table 100 dengan rute unreachable. Perbaikan dilakukan secara manual dan menggunakan script perbaikan_shigeru.sh pada Shigeru. Setelah rute diperbaiki dan IP forwarding diaktifkan, pengujian menunjukkan Lilith berhasil melakukan ping ke Armisael dengan 4 paket diterima dan 0% packet loss. Dengan demikian, konektivitas antarjaringan berhasil dipulihkan.
+
+### SOAL 10 — PERBAIKAN SABOTASE NAT PADA MISATO DAN GENDO
+
+Pada Soal 10 dilakukan pengujian dan perbaikan konfigurasi Network Address Translation (NAT) pada router Misato dan Gendo. Sabotase menyebabkan Unit-01, Unit-02, dan Unit-00 pada jaringan Cage tidak dapat melakukan ping ke internet (`8.8.8.8`), sedangkan Spy pada jaringan Intel tetap dapat mengakses internet. Koneksi dari Cage menuju Lilith tetap normal.
+
+#### Pengerjaan Secara Manual
+
+Pengerjaan manual dilakukan dengan menjalankan script sabotase pada kedua router, memeriksa kerusakan konfigurasi NAT, kemudian memperbaikinya secara langsung melalui Console masing-masing node.
+
+**1. Menjalankan script sabotase pada Misato**
+
+File `break_nat.sh` dimasukkan ke Console Misato menggunakan perintah:
+
+```bash
+cat > /root/break_nat.sh <<'EOF'
+```
+
+Kemudian seluruh isi script sabotase yang diberikan pada soal dimasukkan hingga penutup `EOF`.
+
+Setelah file dibuat, jalankan:
+
+```bash
+chmod +x /root/break_nat.sh
+/root/break_nat.sh
+```
+
+**2. Menjalankan script sabotase pada Gendo**
+
+File `break_nat.sh` yang sama juga dimasukkan ke Console Gendo. Setelah selesai, jalankan:
+
+```bash
+chmod +x /root/break_nat.sh
+/root/break_nat.sh
+```
+
+**3. Memeriksa konfigurasi NAT pada Misato**
+
+Pada Console Misato:
+
+```bash
+ip -br addr
+ip route
+sysctl net.ipv4.ip_forward
+iptables -t nat -L POSTROUTING -n -v --line-numbers
+```
+
+Pemeriksaan menunjukkan adanya aturan SNAT yang mengubah alamat sumber jaringan Cage menjadi `172.31.99.1`.
+
+**4. Memeriksa konfigurasi NAT pada Gendo**
+
+Pada Console Gendo:
+
+```bash
+ip -br addr
+ip route
+sysctl net.ipv4.ip_forward
+iptables -t nat -L POSTROUTING -n -v --line-numbers
+```
+
+Pemeriksaan dilakukan untuk menemukan aturan `RETURN` yang menghalangi proses NAT bagi paket dari jaringan Cage.
+
+**5. Menguji kondisi sebelum perbaikan**
+
+Pada Console Unit-01:
+
+```bash
+ping -c 4 -W 2 8.8.8.8
+```
+
+Kemudian menguji koneksi menuju Lilith:
+
+```bash
+ping -c 4 -W 2 192.225.4.74
+```
+
+Kondisi setelah sabotase yang diharapkan adalah ping internet gagal, tetapi koneksi dari Cage ke Lilith tetap berhasil.
+
+**6. Memperbaiki NAT pada Misato**
+
+Pada Console Misato, hapus aturan SNAT yang salah:
+
+```bash
+iptables -t nat -D POSTROUTING -s 192.225.4.64/29 ! -d 192.225.0.0/16 -o eth0 -j SNAT --to-source 172.31.99.1
+```
+
+Interface `eth0` disesuaikan dengan interface menuju Gendo.
+
+**7. Memperbaiki NAT pada Gendo**
+
+Pada Console Gendo, hapus aturan RETURN yang dibuat oleh sabotase:
+
+```bash
+iptables -t nat -D POSTROUTING -s 192.225.4.64/29 -o eth0 -j RETURN
+```
+
+Interface `eth0` disesuaikan dengan interface WAN menuju NAT1.
+
+**8. Memastikan aturan MASQUERADE pada Gendo**
+
+```bash
+iptables -t nat -C POSTROUTING -s 192.225.0.0/16 ! -d 192.225.0.0/16 -o eth0 -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 192.225.0.0/16 ! -d 192.225.0.0/16 -o eth0 -j MASQUERADE
+```
+
+**9. Mengaktifkan IP forwarding pada Gendo**
+
+```bash
+sysctl -w net.ipv4.ip_forward=1
+```
+
+**10. Menguji hasil perbaikan dari Unit-01**
+
+```bash
+ping -c 4 192.225.4.65
+ping -c 4 192.225.4.74
+ping -c 4 -W 2 8.8.8.8
+```
+
+Pengujian ini memastikan koneksi ke gateway, Lilith, dan internet kembali berjalan.
+
+**Bukti pengerjaan manual:**
+
+[Tempel screenshot menjalankan sabotase pada Misato dan Gendo]
+
+[Tempel screenshot pemeriksaan aturan NAT pada Misato dan Gendo]
+
+[Tempel screenshot perbaikan aturan NAT secara manual]
+
+[Tempel screenshot pengujian Unit-01 sebelum dan setelah perbaikan]
+
+#### Pengerjaan Menggunakan Script
+
+Setelah pengerjaan manual, dibuat script terpisah untuk pemeriksaan dan perbaikan NAT agar proses dapat dijalankan kembali dengan lebih mudah.
+
+**1. Membuat script pemeriksaan NAT**
+
+Script `cek_nat_soal10.sh` dibuat pada Misato dan Gendo.
+
+```bash
+cat > /root/cek_nat_soal10.sh <<'EOF'
+#!/bin/sh
+
+echo "===================================="
+echo " PEMERIKSAAN NAT SOAL 10"
+echo "===================================="
+
+echo ""
+echo "=== NAMA NODE ==="
+hostname
+
+echo ""
+echo "=== IP ADDRESS ==="
+ip -br addr
+
+echo ""
+echo "=== ROUTING ==="
+ip route
+
+echo ""
+echo "=== IP FORWARDING ==="
+sysctl net.ipv4.ip_forward
+
+echo ""
+echo "=== NAT POSTROUTING ==="
+iptables -t nat -L POSTROUTING -n -v --line-numbers
+
+echo ""
+echo "=== FILTER FORWARD ==="
+iptables -L FORWARD -n -v --line-numbers
+
+echo ""
+echo "=== PEMERIKSAAN SELESAI ==="
+EOF
+```
+
+Jalankan pada masing-masing router:
+
+```bash
+chmod +x /root/cek_nat_soal10.sh
+/root/cek_nat_soal10.sh
+```
+
+**2. Membuat script perbaikan Misato**
+
+Pada Console Misato:
+
+```bash
+cat > /root/perbaikan_misato.sh <<'EOF'
+#!/bin/sh
+
+echo "=== PERBAIKAN NAT MISATO ==="
+
+if [ "$(id -u)" != 0 ]; then
+    echo "Jalankan sebagai root."
+    exit 1
+fi
+
+case "$(hostname)" in
+    *[Mm]isato*) ;;
+    *) echo "Script hanya untuk Misato."; exit 1 ;;
+esac
+
+CAGE="192.225.4.64/29"
+INTERNAL="192.225.0.0/16"
+
+UPIF=$(ip route show default | awk 'NR==1 {
+    for (i=1; i<=NF; i++)
+        if ($i=="dev") print $(i+1)
+}')
+
+if [ -z "$UPIF" ]; then
+    echo "Interface menuju Gendo tidak ditemukan."
+    exit 1
+fi
+
+while iptables -t nat -D POSTROUTING \
+    -s "$CAGE" ! -d "$INTERNAL" \
+    -o "$UPIF" -j SNAT --to-source 172.31.99.1 2>/dev/null
+do
+    :
+done
+
+echo "=== HASIL NAT MISATO ==="
+iptables -t nat -L POSTROUTING -n -v --line-numbers
+
+echo "Perbaikan Misato selesai."
+EOF
+```
+
+Jalankan:
+
+```bash
+chmod +x /root/perbaikan_misato.sh
+/root/perbaikan_misato.sh
+```
+
+**3. Membuat script perbaikan Gendo**
+
+Pada Console Gendo:
+
+```bash
+cat > /root/perbaikan_gendo.sh <<'EOF'
+#!/bin/sh
+
+echo "=== PERBAIKAN NAT GENDO ==="
+
+if [ "$(id -u)" != 0 ]; then
+    echo "Jalankan sebagai root."
+    exit 1
+fi
+
+case "$(hostname)" in
+    *[Gg]endo*) ;;
+    *) echo "Script hanya untuk Gendo."; exit 1 ;;
+esac
+
+CAGE="192.225.4.64/29"
+INTERNAL="192.225.0.0/16"
+
+WAN=$(ip route show default | awk 'NR==1 {
+    for (i=1; i<=NF; i++)
+        if ($i=="dev") print $(i+1)
+}')
+
+if [ -z "$WAN" ]; then
+    echo "Interface WAN tidak ditemukan."
+    exit 1
+fi
+
+while iptables -t nat -D POSTROUTING \
+    -s "$CAGE" -o "$WAN" -j RETURN 2>/dev/null
+do
+    :
+done
+
+iptables -t nat -C POSTROUTING \
+    -s "$INTERNAL" ! -d "$INTERNAL" \
+    -o "$WAN" -j MASQUERADE 2>/dev/null || \
+iptables -t nat -A POSTROUTING \
+    -s "$INTERNAL" ! -d "$INTERNAL" \
+    -o "$WAN" -j MASQUERADE
+
+sysctl -w net.ipv4.ip_forward=1
+
+echo "=== HASIL NAT GENDO ==="
+iptables -t nat -L POSTROUTING -n -v --line-numbers
+
+echo "=== IP FORWARDING ==="
+sysctl net.ipv4.ip_forward
+
+echo "Perbaikan Gendo selesai."
+EOF
+```
+
+Jalankan:
+
+```bash
+chmod +x /root/perbaikan_gendo.sh
+/root/perbaikan_gendo.sh
+```
+
+**4. Membuat script pengujian Unit-01**
+
+Pada Console Unit-01:
+
+```bash
+cat > /root/test_soal10.sh <<'EOF'
+#!/bin/sh
+
+echo "===================================="
+echo " PENGUJIAN SOAL 10 - UNIT-01"
+echo "===================================="
+
+echo ""
+echo "=== IP ADDRESS ==="
+ip -br addr
+
+echo ""
+echo "=== ROUTING ==="
+ip route
+
+echo ""
+echo "=== PING GATEWAY CAGE ==="
+ping -c 4 -W 2 192.225.4.65
+
+echo ""
+echo "=== PING LILITH ==="
+ping -c 4 -W 2 192.225.4.74
+
+echo ""
+echo "=== PING INTERNET ==="
+ping -c 4 -W 2 8.8.8.8
+
+echo ""
+echo "=== PENGUJIAN SELESAI ==="
+EOF
+```
+
+Jalankan:
+
+```bash
+chmod +x /root/test_soal10.sh
+/root/test_soal10.sh
+```
+
+**5. Memeriksa hasil akhir**
+
+Pada Misato dan Gendo:
+
+```bash
+/root/cek_nat_soal10.sh
+```
+
+Pada Gendo, pastikan aturan MASQUERADE untuk jaringan internal terlihat pada POSTROUTING. Alamat sumber paket diterjemahkan pada Gendo ketika paket keluar melalui interface WAN menuju NAT1.
+
+**Bukti pengerjaan menggunakan script:**
+
+[Tempel screenshot script cek_nat_soal10.sh pada Misato]
+
+[Tempel screenshot script cek_nat_soal10.sh pada Gendo]
+
+[Tempel screenshot script perbaikan_misato.sh]
+
+[Tempel screenshot script perbaikan_gendo.sh]
+
+[Tempel screenshot script test_soal10.sh dan hasil ping Unit-01]
+
+#### Kesimpulan
+
+Sabotase pada Soal 10 menyebabkan jaringan Cage tidak dapat mengakses internet akibat aturan SNAT yang salah pada Misato dan aturan RETURN pada Gendo. Jaringan Intel tidak terdampak karena aturan sabotase secara khusus menggunakan sumber jaringan Cage. Perbaikan dilakukan secara manual dan menggunakan script terpisah pada Misato dan Gendo. NAT untuk jaringan internal dilakukan pada Gendo menggunakan MASQUERADE ketika paket keluar menuju NAT1. Keberhasilan perbaikan dibuktikan dengan ping Unit-01 ke `8.8.8.8`, serta pemeriksaan aturan NAT pada kedua router.
+
+
