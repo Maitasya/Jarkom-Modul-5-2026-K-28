@@ -2842,4 +2842,99 @@ Pada Gendo, pastikan aturan MASQUERADE untuk jaringan internal terlihat pada POS
 
 Sabotase pada Soal 10 menyebabkan jaringan Cage tidak dapat mengakses internet akibat aturan SNAT yang salah pada Misato dan aturan RETURN pada Gendo. Jaringan Intel tidak terdampak karena aturan sabotase secara khusus menggunakan sumber jaringan Cage. Perbaikan dilakukan secara manual dan menggunakan script terpisah pada Misato dan Gendo. NAT untuk jaringan internal dilakukan pada Gendo menggunakan MASQUERADE ketika paket keluar menuju NAT1. Keberhasilan perbaikan dibuktikan dengan ping Unit-01 ke `8.8.8.8`, serta pemeriksaan aturan NAT pada kedua router.
 
+Soal 11 — Casper Harus Jadi Hantu
+A. Permasalahan & Analisis
 
+Casper merupakan salah satu MAGI paling rahasia di Geofront. Untuk mencegah deteksi keberadaannya oleh pihak luar (SEELE) maupun node internal lainnya:
+
+Tidak ada node/perangkat lain yang boleh melakukan ping (ICMP Echo Request) ke Casper, termasuk tetangga dalam satu switch (Switch-Terminal).
+Casper sendiri harus tetap diizinkan melakukan ping keluar ke node mana pun.
+Layanan TCP port 5000 pada Casper harus tetap aktif dan dapat melayani permintaan.
+
+Agar Casper bisa menerima balasan ping keluar tanpa membiarkan ping dari luar masuk, digunakan rule conntrack dengan state ESTABLISHED,RELATED untuk paket masuk yang merupakan respon sah dari traffic keluar Casper, serta memblokir paket icmp bertipe echo-request yang diinisiasi oleh pihak luar.
+
+B. Langkah Konfigurasi
+
+Konfigurasi firewall diterapkan pada node Magi-Casper (192.225.4.58):
+
+Konfigurasi Firewall (iptables) di Magi-Casper:
+
+bash
+# Membersihkan chain INPUT
+iptables -F INPUT
+# Mengizinkan traffic loopback lokal
+iptables -A INPUT -i lo -j ACCEPT
+# Mengizinkan paket balasan (state ESTABLISHED dan RELATED)
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# Mengizinkan akses masuk TCP port 5000 untuk layanan MAGI
+iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+# Menolak (DROP) paket ICMP echo-request yang masuk ke Casper
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+Pengecekan Rule Aktif:
+
+bash
+iptables -S
+
+<img width="577" height="183" alt="image" src="https://github.com/user-attachments/assets/5ef9ef86-bda6-4f70-9556-bde8f2daa988" />
+
+C. Pengujian & Bukti Hasil
+1. Uji Ping dari Node Lain ke Magi-Casper (Harus Gagal)
+
+Pengujian dari Magi-Balthasar (Satu Switch):
+
+bash
+ping -c 2 -W 2 192.225.4.58
+
+Hasil: 100% packet loss (ping gagal/terblokir).
+
+<img width="575" height="224" alt="image" src="https://github.com/user-attachments/assets/8a67d8f9-a503-49f2-9711-95bd835ce528" />
+
+
+Pengujian dari Lilith (Luar Subnet / Switch-Dogma):
+
+bash
+ping -c 2 -W 2 192.225.4.58
+
+Hasil: 100% packet loss (ping gagal/terblokir).
+
+<img width="647" height="171" alt="image" src="https://github.com/user-attachments/assets/4d9f56b8-d64d-4d7b-ba1b-c9fb106d945a" />
+
+
+2. Uji Ping dari Magi-Casper ke Node Lain (Harus Berhasil)
+
+Magi-Casper melakukan ping ke Magi-Balthasar dan Lilith untuk membuktikan bahwa koneksi keluar tetap berjalan normal:
+
+bash
+ping -c 2 192.225.4.59
+ping -c 2 192.225.4.74
+
+Hasil: 0% packet loss (berhasil menerima Echo Reply).
+
+<img width="574" height="317" alt="image" src="https://github.com/user-attachments/assets/c1066791-85de-4da8-a985-07499e88f557" />
+
+
+D. Skrip Otomasi (Restart-Safe)
+
+File script disimpan di /root/casper.sh pada node Magi-Casper:
+
+bash
+#!/bin/sh
+# casper.sh - Soal 7 (listener) + Soal 11 (hantu: block ping masuk)
+# Install tools
+apk add iptables netcat-openbsd 2>/dev/null || apt-get install -y iptables netcat-traditional 2>/dev/null
+# Flush rules lama
+iptables -F INPUT
+# Allow loopback
+iptables -A INPUT -i lo -j ACCEPT
+# Allow established/related (reply ping keluar Casper tetap masuk)
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+# Allow TCP 5000 (layanan MAGI)
+iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+# DROP ping masuk ke Casper
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+# Nyalakan listener TCP 5000 (background, restart-safe)
+pkill -f "nc.*5000" 2>/dev/null
+(while true; do echo "MAGI-CASPER" | nc -l -p 5000 -q1 2>/dev/null || echo "MAGI-CASPER" | nc -l -p 5000 2>/dev/null; done) &
+echo "== casper.sh selesai =="
+iptables -S
