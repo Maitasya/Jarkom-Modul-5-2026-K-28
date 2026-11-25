@@ -3,7 +3,7 @@
 | Nama | NRP |
 |---|---|
 | Maitasya Rohmatul Ula | 5027251026 |
-| A. Algifari Rantiga Isdar | 5027251084 |
+| A. Algifari Rantiga Isdar | 5027251112|
 
 ### SOAL 1 — PEMBAGIAN IP ADDRESS MENGGUNAKAN VLSM
 
