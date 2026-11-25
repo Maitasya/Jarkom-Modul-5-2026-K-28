@@ -2842,102 +2842,221 @@ Pada Gendo, pastikan aturan MASQUERADE untuk jaringan internal terlihat pada POS
 
 Sabotase pada Soal 10 menyebabkan jaringan Cage tidak dapat mengakses internet akibat aturan SNAT yang salah pada Misato dan aturan RETURN pada Gendo. Jaringan Intel tidak terdampak karena aturan sabotase secara khusus menggunakan sumber jaringan Cage. Perbaikan dilakukan secara manual dan menggunakan script terpisah pada Misato dan Gendo. NAT untuk jaringan internal dilakukan pada Gendo menggunakan MASQUERADE ketika paket keluar menuju NAT1. Keberhasilan perbaikan dibuktikan dengan ping Unit-01 ke `8.8.8.8`, serta pemeriksaan aturan NAT pada kedua router.
 
-Soal 11 — Casper Harus Jadi Hantu
-A. Permasalahan & Analisis
+# Soal 11 — Casper Harus Jadi Hantu
 
-Casper merupakan salah satu MAGI paling rahasia di Geofront. Untuk mencegah deteksi keberadaannya oleh pihak luar (SEELE) maupun node internal lainnya:
+## A. Permasalahan & Analisis
 
-Tidak ada node/perangkat lain yang boleh melakukan ping (ICMP Echo Request) ke Casper, termasuk tetangga dalam satu switch (Switch-Terminal).
-Casper sendiri harus tetap diizinkan melakukan ping keluar ke node mana pun.
-Layanan TCP port 5000 pada Casper harus tetap aktif dan dapat melayani permintaan.
+Casper merupakan salah satu MAGI paling rahasia di Geofront. Untuk mencegah deteksi keberadaannya oleh pihak luar (SEELE) maupun node internal lainnya, diperlukan konfigurasi firewall dengan ketentuan sebagai berikut:
 
-Agar Casper bisa menerima balasan ping keluar tanpa membiarkan ping dari luar masuk, digunakan rule conntrack dengan state ESTABLISHED,RELATED untuk paket masuk yang merupakan respon sah dari traffic keluar Casper, serta memblokir paket icmp bertipe echo-request yang diinisiasi oleh pihak luar.
+1. Tidak ada node atau perangkat lain yang boleh melakukan **ping (ICMP Echo Request)** ke Casper, termasuk perangkat yang berada dalam satu switch (Switch-Terminal).
+2. Casper tetap diperbolehkan melakukan ping keluar ke node mana pun.
+3. Layanan TCP port `5000` pada Casper harus tetap aktif dan dapat menerima permintaan koneksi.
 
-B. Langkah Konfigurasi
+Untuk memenuhi kebutuhan tersebut, digunakan mekanisme firewall `iptables` dengan aturan:
 
-Konfigurasi firewall diterapkan pada node Magi-Casper (192.225.4.58):
+- Mengizinkan koneksi loopback lokal.
+- Mengizinkan paket balasan dari koneksi yang telah terbentuk menggunakan `conntrack` dengan state `ESTABLISHED,RELATED`.
+- Mengizinkan koneksi TCP menuju port `5000`.
+- Memblokir seluruh paket ICMP bertipe `echo-request` yang masuk ke Casper.
 
-Konfigurasi Firewall (iptables) di Magi-Casper:
+Dengan konfigurasi ini, Casper tidak dapat di-ping oleh node lain, tetapi tetap dapat melakukan ping keluar dan menerima Echo Reply sebagai balasannya.
 
-bash
+## B. Langkah Konfigurasi
+
+### 1. Konfigurasi Firewall pada Magi-Casper
+
+Konfigurasi firewall diterapkan pada node berikut:
+
+| Keterangan | Nilai |
+|---|---|
+| Nama Node | Magi-Casper |
+| IP Address | `192.225.4.58` |
+| Firewall | `iptables` |
+| Port yang Diizinkan | TCP `5000` |
+
+Jalankan perintah berikut pada terminal Magi-Casper:
+
+```bash
 # Membersihkan chain INPUT
 iptables -F INPUT
+
 # Mengizinkan traffic loopback lokal
 iptables -A INPUT -i lo -j ACCEPT
-# Mengizinkan paket balasan (state ESTABLISHED dan RELATED)
+
+# Mengizinkan paket balasan (ESTABLISHED dan RELATED)
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-# Mengizinkan akses masuk TCP port 5000 untuk layanan MAGI
+
+# Mengizinkan akses masuk TCP port 5000
 iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
-# Menolak (DROP) paket ICMP echo-request yang masuk ke Casper
+
+# Memblokir ICMP Echo Request yang masuk
 iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+```
 
-Pengecekan Rule Aktif:
+### 2. Pengecekan Rule Firewall
 
-bash
+Untuk memastikan seluruh aturan firewall telah diterapkan, jalankan:
+
+```bash
 iptables -S
+```
 
-<img width="577" height="183" alt="image" src="https://github.com/user-attachments/assets/5ef9ef86-bda6-4f70-9556-bde8f2daa988" />
+**Bukti Konfigurasi:**
 
-C. Pengujian & Bukti Hasil
-1. Uji Ping dari Node Lain ke Magi-Casper (Harus Gagal)
+<img width="577" height="183" alt="Screenshot 2026-11-26 015331" src="https://github.com/user-attachments/assets/a33dfbbf-8d72-4478-a06b-f4608ed058c6" />
 
-Pengujian dari Magi-Balthasar (Satu Switch):
 
-bash
+> Ganti gambar di atas dengan screenshot aktual output `iptables -S` dari Magi-Casper.
+
+## C. Pengujian & Bukti Hasil
+
+### 1. Pengujian Ping dari Node Lain ke Magi-Casper
+
+Pengujian dilakukan untuk memastikan bahwa Casper tidak dapat menerima ping dari node lain, baik yang berada dalam satu switch maupun dari luar subnet.
+
+#### a. Pengujian dari Magi-Balthasar (Satu Switch)
+
+Jalankan perintah berikut pada node Magi-Balthasar:
+
+```bash
 ping -c 2 -W 2 192.225.4.58
+```
 
-Hasil: 100% packet loss (ping gagal/terblokir).
+**Hasil yang Diharapkan:**
 
-<img width="575" height="224" alt="image" src="https://github.com/user-attachments/assets/8a67d8f9-a503-49f2-9711-95bd835ce528" />
+- Ping gagal.
+- Packet loss sebesar 100%.
+- Tidak ada Echo Reply yang diterima dari Magi-Casper.
+
+**Bukti Pengujian:**
+
+<img width="575" height="224" alt="Screenshot 2026-11-26 015401" src="https://github.com/user-attachments/assets/31c9a24a-9922-4b27-a6ec-5b6b9ee7e954" />
 
 
-Pengujian dari Lilith (Luar Subnet / Switch-Dogma):
+#### b. Pengujian dari Lilith (Luar Subnet / Switch-Dogma)
 
-bash
+Jalankan perintah berikut pada node Lilith:
+
+```bash
 ping -c 2 -W 2 192.225.4.58
+```
 
-Hasil: 100% packet loss (ping gagal/terblokir).
+**Hasil yang Diharapkan:**
 
-<img width="647" height="171" alt="image" src="https://github.com/user-attachments/assets/4d9f56b8-d64d-4d7b-ba1b-c9fb106d945a" />
+- Ping gagal.
+- Packet loss sebesar 100%.
+- Tidak ada Echo Reply yang diterima dari Magi-Casper.
+
+**Bukti Pengujian:**
+<img width="647" height="171" alt="Screenshot 2026-11-26 015432" src="https://github.com/user-attachments/assets/54ed1e39-d537-46f7-8823-4a90f52ee05e" />
 
 
-2. Uji Ping dari Magi-Casper ke Node Lain (Harus Berhasil)
+### 2. Pengujian Ping dari Magi-Casper ke Node Lain
 
-Magi-Casper melakukan ping ke Magi-Balthasar dan Lilith untuk membuktikan bahwa koneksi keluar tetap berjalan normal:
+Pengujian selanjutnya dilakukan untuk memastikan bahwa Casper tetap dapat melakukan koneksi keluar ke node lain.
 
-bash
+Jalankan perintah berikut pada terminal Magi-Casper:
+
+**Ping ke Magi-Balthasar:**
+
+```bash
 ping -c 2 192.225.4.59
+```
+
+**Ping ke Lilith:**
+
+```bash
 ping -c 2 192.225.4.74
+```
 
-Hasil: 0% packet loss (berhasil menerima Echo Reply).
+**Hasil yang Diharapkan:**
 
-<img width="574" height="317" alt="image" src="https://github.com/user-attachments/assets/c1066791-85de-4da8-a985-07499e88f557" />
+- Kedua pengujian ping berhasil.
+- Packet loss sebesar 0%.
+- Magi-Casper berhasil menerima ICMP Echo Reply dari kedua node.
+
+**Bukti Pengujian:**
+
+<img width="574" height="317" alt="Screenshot 2026-11-26 015451" src="https://github.com/user-attachments/assets/30ffc760-356c-4bb6-9546-ad58cc373b1f" />
 
 
-D. Skrip Otomasi (Restart-Safe)
+## D. Skrip Otomasi (Restart-Safe)
 
-File script disimpan di /root/casper.sh pada node Magi-Casper:
+Untuk mempermudah penerapan konfigurasi firewall, dibuat sebuah skrip otomatis bernama `casper_fw.sh`.
 
+Skrip ini disimpan pada direktori `/root/` di node Magi-Casper.
+
+### 1. Membuat File Script
+
+Jalankan perintah berikut:
+
+```bash
 cat > /root/casper_fw.sh << 'EOF'
 #!/bin/sh
+
 # Firewall Hardening Soal 11 (Casper)
 
+# Mengatur default policy INPUT
 iptables -P INPUT ACCEPT
+
+# Membersihkan chain INPUT
 iptables -F INPUT
 
-# 1. Loopback
+# 1. Mengizinkan loopback
 iptables -A INPUT -i lo -j ACCEPT
 
-# 2. Izinkan balasan koneksi keluar (biar Casper bisa ping keluar)
+# 2. Mengizinkan balasan koneksi keluar
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-# 3. Tetap buka port 5000 untuk service MAGI
+# 3. Mengizinkan layanan MAGI pada TCP port 5000
 iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
 
-# 4. Blokir semua ping masuk
+# 4. Memblokir seluruh ICMP Echo Request masuk
 iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
 
 echo "== Firewall Soal 11 Terpasang =="
+
+# Menampilkan aturan firewall aktif
 iptables -S
 EOF
+```
+
+### 2. Memberikan Hak Akses Eksekusi
+
+```bash
 chmod +x /root/casper_fw.sh
+```
+
+### 3. Menjalankan Script
+
+```bash
+/root/casper_fw.sh
+```
+
+Apabila berhasil, terminal akan menampilkan pesan:
+
+```text
+== Firewall Soal 11 Terpasang ==
+```
+
+Kemudian aturan firewall aktif akan ditampilkan melalui output `iptables -S`.
+
+> **Catatan:** Skrip ini dapat dijalankan kembali untuk menerapkan ulang aturan firewall. Namun, agar konfigurasi benar-benar bertahan setelah reboot, skrip perlu dipanggil melalui mekanisme startup sistem seperti systemd atau layanan startup lainnya.
+
+## E. Kesimpulan
+
+Berdasarkan konfigurasi dan pengujian yang dilakukan, firewall pada Magi-Casper dirancang untuk memenuhi seluruh kebutuhan keamanan berikut:
+
+| No. | Skenario Pengujian | Hasil yang Diharapkan |
+|---|---|---|
+| 1 | Ping dari Magi-Balthasar ke Casper | Gagal |
+| 2 | Ping dari Lilith ke Casper | Gagal |
+| 3 | Ping dari Casper ke Magi-Balthasar | Berhasil |
+| 4 | Ping dari Casper ke Lilith | Berhasil |
+| 5 | Akses TCP port 5000 | Diizinkan |
+
+Dengan menerapkan aturan `iptables` dan mekanisme `conntrack`, Magi-Casper menjadi tidak dapat dideteksi melalui ICMP Echo Request dari node lain, tetapi tetap dapat melakukan komunikasi keluar secara normal.
+
+Layanan MAGI pada TCP port `5000` juga tetap diizinkan untuk menerima koneksi masuk.
+
+**Casper berhasil menjadi hantu di dalam jaringan Geofront!**
