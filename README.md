@@ -2918,23 +2918,26 @@ D. Skrip Otomasi (Restart-Safe)
 
 File script disimpan di /root/casper.sh pada node Magi-Casper:
 
-bash
+cat > /root/casper_fw.sh << 'EOF'
 #!/bin/sh
-# casper.sh - Soal 7 (listener) + Soal 11 (hantu: block ping masuk)
-# Install tools
-apk add iptables netcat-openbsd 2>/dev/null || apt-get install -y iptables netcat-traditional 2>/dev/null
-# Flush rules lama
+# Firewall Hardening Soal 11 (Casper)
+
+iptables -P INPUT ACCEPT
 iptables -F INPUT
-# Allow loopback
+
+# 1. Loopback
 iptables -A INPUT -i lo -j ACCEPT
-# Allow established/related (reply ping keluar Casper tetap masuk)
+
+# 2. Izinkan balasan koneksi keluar (biar Casper bisa ping keluar)
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-# Allow TCP 5000 (layanan MAGI)
+
+# 3. Tetap buka port 5000 untuk service MAGI
 iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
-# DROP ping masuk ke Casper
+
+# 4. Blokir semua ping masuk
 iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
-# Nyalakan listener TCP 5000 (background, restart-safe)
-pkill -f "nc.*5000" 2>/dev/null
-(while true; do echo "MAGI-CASPER" | nc -l -p 5000 -q1 2>/dev/null || echo "MAGI-CASPER" | nc -l -p 5000 2>/dev/null; done) &
-echo "== casper.sh selesai =="
+
+echo "== Firewall Soal 11 Terpasang =="
 iptables -S
+EOF
+chmod +x /root/casper_fw.sh
