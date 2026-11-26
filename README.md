@@ -4485,3 +4485,164 @@ chmod +x /root/fuyutsuki_dnat.sh
 - Counter pada tabel `nat` umumnya dihitung berdasarkan paket pertama dari setiap koneksi baru, bukan seluruh paket dalam koneksi tersebut. Karena itu, gunakan koneksi baru saat menguji kenaikan counter.
 - Pastikan router Fuyutsuki memiliki jalur routing menuju jaringan Pen-Pen dan kebijakan forwarding mengizinkan paket yang telah ditranslasikan melewati router.
 - Jika koneksi TCP tidak sampai ke Pen-Pen, periksa konfigurasi IP forwarding, tabel routing, dan aturan firewall chain `FORWARD` pada Fuyutsuki.
+
+# Soal 18: Gerbang Monolith dan Radar
+
+## 1. Analisis dan Masalah
+
+Area **Monolith** (Switch-Monolith: Zeruel dan Armisael) serta **Radar** (Switch-Radar: Radar-Array) merupakan zona sensitif NERV yang dijaga oleh router **Shigeru**.
+
+Kebutuhan keamanan:
+
+1. Seluruh node di dalam zona sensitif diizinkan untuk memulai koneksi ke luar.
+2. Paket balasan dari koneksi yang dimulai oleh node dalam zona harus dapat diterima kembali menggunakan conntrack (`ESTABLISHED,RELATED`).
+3. Seluruh node dari luar zona tidak boleh memulai koneksi baru ke dalam zona.
+4. Terdapat satu pengecualian: paket ICMP `echo-request` dari subnet Terminal (`192.225.4.56/29`) diizinkan masuk.
+5. Pemblokiran harus didasarkan pada interface yang menghadap router pusat Gendo, yaitu `eth0`, bukan dengan mendaftarkan subnet luar satu per satu.
+
+**Solusi:** Terapkan aturan firewall pada chain `FORWARD` di router Shigeru. Izinkan koneksi balasan dan lalu lintas yang berasal dari zona sensitif melalui `eth1` dan `eth2`. Setelah itu, berikan pengecualian ping dari subnet Terminal, lalu blokir lalu lintas lainnya yang masuk melalui `eth0`.
+
+### Informasi Interface
+
+| Interface | Arah / Fungsi |
+|---|---|
+| `eth0` | Menghadap router pusat Gendo |
+| `eth1` | Mengarah ke salah satu zona sensitif |
+| `eth2` | Mengarah ke zona sensitif lainnya |
+
+## 2. Langkah Konfigurasi
+
+Konfigurasi firewall diterapkan pada router **Shigeru**, tepatnya di chain `FORWARD`.
+
+### Memasang Aturan Firewall
+
+```bash
+# 1. Bersihkan chain FORWARD
+iptables -F FORWARD
+
+# 2. Izinkan koneksi balasan
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 3. Izinkan traffic yang berasal dari zona sensitif
+iptables -A FORWARD -i eth1 -j ACCEPT
+iptables -A FORWARD -i eth2 -j ACCEPT
+
+# 4. Pengecualian: Izinkan ping dari subnet Terminal
+iptables -A FORWARD -i eth0 \
+  -s 192.225.4.56/29 \
+  -p icmp --icmp-type echo-request -j ACCEPT
+
+# 5. Blokir seluruh traffic lainnya dari arah Gendo
+iptables -A FORWARD -i eth0 -j DROP
+
+# 6. Policy default tetap ACCEPT
+iptables -P FORWARD ACCEPT
+```
+
+### Verifikasi Aturan Firewall
+
+```bash
+iptables -L FORWARD -v -n
+```
+## 3. Pengujian dan Validasi Hasil
+
+### Pengujian 1: Ping dari Magi-Casper ke Zeruel
+
+Pengujian ini membuktikan bahwa subnet Terminal (`192.225.4.56/29`) mendapatkan pengecualian untuk mengirim ping ke zona sensitif.
+
+Jalankan perintah berikut pada node **Magi-Casper**:
+
+```bash
+ping -c 3 192.225.4.82
+```
+
+**Hasil yang diharapkan:** Ping berhasil dengan `0% packet loss` karena Magi-Casper berada di subnet Terminal yang diizinkan oleh rule firewall.
+
+<img width="577" height="217" alt="Screenshot 2026-11-26 183753" src="https://github.com/user-attachments/assets/9e98fada-7e51-48ac-acdd-8161240bddd6" />
+
+
+
+### Pengujian 2: Ping dari Lilith ke Zeruel
+
+Pengujian ini membuktikan bahwa node dari luar zona sensitif tidak dapat memulai koneksi menuju zona Monolith.
+
+Jalankan perintah berikut pada node **Lilith**:
+
+```bash
+ping -c 3 -W 2 192.225.4.82
+```
+
+**Hasil yang diharapkan:** Ping gagal dengan `100% packet loss` karena paket berasal dari arah Gendo melalui interface `eth0` dan bukan berasal dari subnet Terminal yang mendapatkan pengecualian.
+
+<img width="613" height="160" alt="Screenshot 2026-11-26 183809" src="https://github.com/user-attachments/assets/fa9dfa0d-b7a5-4e9f-b798-dab8be1ff53a" />
+
+
+### Pengujian 3: Memeriksa Counter Rule FORWARD
+
+Setelah kedua pengujian selesai, jalankan perintah berikut pada router **Shigeru**:
+
+```bash
+iptables -L FORWARD -v -n
+```
+
+**Hasil yang diharapkan:**
+
+- Counter pada rule `ACCEPT` untuk ICMP dari subnet Terminal bertambah ketika Magi-Casper melakukan ping ke Zeruel.
+- Counter pada rule `DROP` dengan interface masuk `eth0` bertambah ketika Lilith mencoba melakukan ping ke Zeruel.
+
+Kenaikan kedua counter tersebut membuktikan bahwa aturan pengecualian dan pemblokiran telah bekerja sesuai kebutuhan.
+
+<img width="712" height="292" alt="Screenshot 2026-11-26 183828" src="https://github.com/user-attachments/assets/e6dd3001-a0ed-4eaf-a8de-bca4a6459a9b" />
+
+
+## 4. Skrip Otomasi
+
+Simpan skrip berikut sebagai `/root/shigeru_gate.sh` pada router **Shigeru**.
+
+```bash
+#!/bin/sh
+
+# Aturan Gerbang Monolith & Radar (Soal 18)
+
+# Bersihkan chain FORWARD
+iptables -F FORWARD
+
+# 1. Izinkan koneksi balasan
+iptables -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 2. Izinkan traffic keluar dari zona sensitif
+iptables -A FORWARD -i eth1 -j ACCEPT
+iptables -A FORWARD -i eth2 -j ACCEPT
+
+# 3. Pengecualian: Ping dari subnet Terminal
+iptables -A FORWARD -i eth0 \
+  -s 192.225.4.56/29 \
+  -p icmp --icmp-type echo-request -j ACCEPT
+
+# 4. Blokir traffic lainnya dari arah Gendo
+iptables -A FORWARD -i eth0 -j DROP
+
+# 5. Policy default tetap ACCEPT
+iptables -P FORWARD ACCEPT
+
+echo "== Gerbang Shigeru Aktif =="
+
+# Tampilkan aturan dan counter
+iptables -L FORWARD -v -n
+```
+
+### Menjalankan Skrip
+
+```bash
+chmod +x /root/shigeru_gate.sh
+/root/shigeru_gate.sh
+```
+
+## 5. Catatan Teknis
+
+- Chain `FORWARD` digunakan karena router Shigeru memproses paket yang melewati router menuju jaringan lain.
+- Rule `ESTABLISHED,RELATED` memungkinkan paket balasan dari koneksi yang dimulai oleh node di zona sensitif diterima kembali.
+- Rule `-i eth1` dan `-i eth2` mengizinkan koneksi yang berasal dari interface zona sensitif untuk diteruskan keluar.
+- Rule pengecualian ICMP harus diletakkan sebelum rule `DROP` agar ping dari subnet Terminal tidak ikut diblokir.
+- Rule `-i eth0 -j DROP` memblokir seluruh paket lain yang masuk dari arah Gendo, tanpa perlu mengetahui atau mendaftarkan subnet sumber satu per satu.
+- Policy default `ACCEPT` dipertahankan sesuai konfigurasi soal. Perlindungan terhadap traffic dari luar zona dilakukan secara khusus melalui rule `DROP` pada `eth0`.
