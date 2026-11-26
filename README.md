@@ -1,4 +1,4 @@
-﻿## Jarkom-Modul-5-2026-K-28
+<img width="761" height="727" alt="Screenshot 2026-11-26 170204" src="https://github.com/user-attachments/assets/d71f3fd7-38c4-4644-959b-8fbabd927c08" />﻿## Jarkom-Modul-5-2026-K-28
 
 | Nama | NRP |
 |---|---|
@@ -3044,3 +3044,322 @@ Dengan menerapkan aturan `iptables` dan mekanisme `conntrack`, Magi-Casper menja
 Layanan MAGI pada TCP port `5000` juga tetap diizinkan untuk menerima koneksi masuk.
 
 **Casper berhasil menjadi hantu di dalam jaringan Geofront!**
+
+# Soal 12: Teknisi yang Kelewat Semangat
+
+## 1. Kondisi Awal dan Gejala Kerusakan
+
+Setelah script hardening dari teknisi (`break_fw.sh`) dijalankan pada node Magi-Casper, muncul beberapa kegagalan sistem.
+
+### 1.1 Gejala 1 — Casper Gagal Ping ke Internet
+
+**Lokasi:** Magi-Casper
+
+Perintah:
+
+```bash
+ping -c 3 8.8.8.8
+```
+
+**Hasil:** Gagal dengan 100% packet loss.
+
+Paket ICMP echo-request berhasil dikirim, tetapi balasan ICMP echo-reply dari internet ditolak oleh chain INPUT.
+
+<img width="761" height="727" alt="Screenshot 2026-11-26 170204" src="https://github.com/user-attachments/assets/5891f0f7-05f7-4b87-99ff-8eedf3c0d0e2" />
+
+
+> Tempatkan screenshot hasil ping 8.8.8.8 dari Magi-Casper yang menunjukkan koneksi gagal.
+
+### 1.2 Gejala 2 — Casper Gagal Menjalankan apt-get update
+
+**Lokasi:** Magi-Casper
+
+Perintah:
+
+```bash
+apt-get update
+```
+
+**Hasil:** Muncul pesan kesalahan:
+
+```text
+Temporary failure resolving 'deb.debian.org'
+```
+
+Repositori Debian gagal diunduh karena terjadi kegagalan resolusi nama domain.
+
+<img width="761" height="727" alt="Screenshot 2026-11-26 170204" src="https://github.com/user-attachments/assets/e0b0592b-8048-4a8d-9ace-4e8f104aa45a" />
+
+
+> Tempatkan screenshot output apt-get update di Magi-Casper yang menunjukkan error DNS.
+
+### 1.3 Gejala 3 — Unit-00 Gagal Terhubung ke TCP Port 5000
+
+**Lokasi:** Unit-00
+
+Perintah:
+
+```bash
+nc -w 3 192.225.4.58 5000 < /dev/null && echo "KONEKSI BERHASIL" || echo "KONEKSI GAGAL"
+```
+
+**Hasil:** KONEKSI GAGAL atau connection timed out.
+
+Penyebabnya adalah port TCP 5000 belum diizinkan pada chain INPUT Magi-Casper.
+
+<img width="740" height="517" alt="Screenshot 2026-11-26 170149" src="https://github.com/user-attachments/assets/92b0f4ba-afda-4a2f-8090-c03cc4ef4729" />
+
+
+> Tempatkan screenshot hasil pengujian nc dari Unit-00 ke Magi-Casper pada port 5000.
+
+---
+
+## 2. Analisis Penyebab Masalah
+
+Berdasarkan pemeriksaan aturan firewall menggunakan perintah `iptables -S`, ditemukan tiga penyebab utama.
+
+| No. | Penyebab | Dampak |
+|---|---|---|
+| 1 | Policy default chain INPUT diset ke DROP tanpa rule ESTABLISHED,RELATED. | Paket balasan dari koneksi yang diinisiasi Casper ikut dibuang. |
+| 2 | Terdapat rule sabotase pada chain OUTPUT yang memblokir DNS. | Casper gagal melakukan resolusi nama domain server Debian. |
+| 3 | Tidak ada rule yang mengizinkan TCP port 5000 pada chain INPUT. | Unit-00 tidak dapat terhubung ke layanan TCP port 5000. |
+
+### 2.1 Rule Sabotase DNS
+
+Rule yang ditemukan pada chain OUTPUT:
+
+```bash
+-A OUTPUT -p udp -m udp --dport 53 -j DROP
+```
+
+Rule tersebut membuang seluruh paket DNS keluar melalui UDP port 53 sehingga proses resolusi nama domain tidak dapat berjalan normal.
+
+### 2.2 Tujuan Perbaikan
+
+Perbaikan dilakukan dengan tetap mempertahankan tujuan hardening, yaitu:
+
+- Default policy chain INPUT tetap DROP.
+- Ping masuk dari Unit-00 ke Magi-Casper tetap ditolak.
+- Koneksi keluar dari Magi-Casper dapat berjalan normal.
+- Resolusi DNS dan pembaruan paket dapat dilakukan kembali.
+- Layanan TCP port 5000 dapat diakses dari Unit-00.
+
+---
+
+## 3. Langkah Perbaikan pada Magi-Casper
+
+Seluruh perintah berikut dijalankan pada terminal Magi-Casper dengan hak akses root.
+
+### 3.1 Mengatur Default Policy
+
+Pastikan default policy INPUT tetap DROP sesuai requirement.
+
+```bash
+iptables -P INPUT DROP
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+```
+
+### 3.2 Membersihkan Rule Lama
+
+Bersihkan rule pada chain INPUT dan OUTPUT.
+
+```bash
+iptables -F INPUT
+iptables -F OUTPUT
+```
+
+### 3.3 Mengizinkan Interface Loopback
+
+```bash
+iptables -A INPUT -i lo -j ACCEPT
+```
+
+### 3.4 Mengizinkan Paket Balasan
+
+Izinkan paket yang merupakan bagian dari koneksi yang sudah terbentuk atau berkaitan dengan koneksi tersebut.
+
+```bash
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+```
+
+### 3.5 Membuka Akses TCP Port 5000
+
+```bash
+iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+```
+
+### 3.6 Memastikan Nameserver DNS Terpasang
+
+```bash
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+```
+
+### 3.7 Verifikasi Rule Hasil Perbaikan
+
+Jalankan perintah berikut untuk memeriksa konfigurasi firewall.
+
+```bash
+iptables -S
+```
+
+<img width="601" height="183" alt="image" src="https://github.com/user-attachments/assets/fba5e978-3d2d-48db-b0fe-4de8bbdeb5b1" />
+
+
+---
+
+## 4. Pengujian dan Validasi Hasil
+
+Setelah perbaikan dilakukan, jalankan pengujian berikut untuk memastikan seluruh fungsi jaringan telah kembali normal.
+
+### 4.1 Pengujian Ping ke Internet
+
+**Lokasi:** Magi-Casper
+
+Perintah:
+
+```bash
+ping -c 3 8.8.8.8
+```
+
+**Hasil yang diharapkan:** Ping berhasil dengan 0% packet loss.
+
+<img width="570" height="217" alt="Screenshot 2026-11-26 171310" src="https://github.com/user-attachments/assets/f2b01a77-386e-4bd4-a01e-aae4df76982d" />
+
+### 4.2 Pengujian apt-get update
+
+**Lokasi:** Magi-Casper
+
+Perintah:
+
+```bash
+apt-get update
+```
+
+**Hasil yang diharapkan:** Metadata paket dari repositori Debian berhasil diunduh tanpa error resolusi DNS.
+
+<img width="726" height="383" alt="Screenshot 2026-11-26 171238" src="https://github.com/user-attachments/assets/74c22ba5-d9c4-437e-a482-8589f68aa1c8" />
+
+
+### 4.3 Pengujian Koneksi TCP Port 5000
+
+**Lokasi:** Unit-00
+
+Perintah:
+
+```bash
+nc -w 3 192.225.4.58 5000 < /dev/null && echo "KONEKSI BERHASIL" || echo "KONEKSI GAGAL"
+```
+
+**Hasil yang diharapkan:**
+
+```text
+KONEKSI BERHASIL
+```
+
+<img width="730" height="115" alt="Screenshot 2026-11-26 171405" src="https://github.com/user-attachments/assets/3e7fc77d-e609-412b-be03-711d1b54c0b4" />
+
+
+### 4.4 Pengujian Ping dari Unit-00 ke Magi-Casper
+
+**Lokasi:** Unit-00
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.4.58
+```
+
+**Hasil yang diharapkan:** Ping tetap gagal dengan 100% packet loss atau Request Timed Out (RTO).
+
+Kegagalan ini menunjukkan bahwa akses ICMP echo-request dari Unit-00 tetap ditolak sesuai aturan hardening.
+
+<img width="592" height="205" alt="Screenshot 2026-11-26 171430" src="https://github.com/user-attachments/assets/7e9f261c-ec9c-492e-a61d-2c6767e97a0b" />
+
+---
+
+## 5. Skrip Otomasi Perbaikan
+
+Untuk mempermudah pemulihan konfigurasi, dibuat skrip otomasi yang disimpan pada node Magi-Casper.
+
+**Lokasi skrip:**
+
+```text
+/root/perbaikan_casper.sh
+```
+
+### 5.1 Isi Skrip
+
+```bash
+#!/bin/sh
+
+# Perbaikan Soal 12 di Magi-Casper
+
+# 1. Mengatur policy default
+iptables -P INPUT DROP
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# 2. Membersihkan rule lama
+iptables -F INPUT
+iptables -F OUTPUT
+
+# 3. Mengizinkan interface loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 4. Mengizinkan paket balasan
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 5. Membuka akses TCP port 5000
+iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
+
+# 6. Mengatur nameserver DNS
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+
+# 7. Menampilkan hasil konfigurasi
+echo "== Perbaikan Soal 12 Selesai =="
+
+iptables -S
+```
+
+### 5.2 Memberikan Izin Eksekusi
+
+```bash
+chmod +x /root/perbaikan_casper.sh
+```
+
+### 5.3 Menjalankan Skrip
+
+```bash
+/root/perbaikan_casper.sh
+```
+
+### 5.4 Verifikasi Hasil Skrip
+
+Setelah skrip dijalankan, periksa kembali konfigurasi firewall.
+
+```bash
+iptables -S
+```
+
+Pastikan policy INPUT tetap DROP dan seluruh rule perbaikan telah diterapkan.
+
+<img width="582" height="185" alt="image" src="https://github.com/user-attachments/assets/e8c1c429-02e2-4235-9561-8a2e2f755abe" />
+
+---
+
+## 6. Kesimpulan
+
+Perbaikan konfigurasi firewall pada Magi-Casper dilakukan untuk memulihkan fungsi jaringan yang terganggu akibat script hardening `break_fw.sh`.
+
+Hasil akhir yang diharapkan:
+
+1. Magi-Casper berhasil melakukan ping ke internet.
+2. Perintah apt-get update berhasil dijalankan tanpa masalah resolusi DNS.
+3. Unit-00 berhasil terhubung ke layanan TCP port 5000.
+4. Ping dari Unit-00 ke Magi-Casper tetap ditolak.
+5. Default policy chain INPUT tetap DROP sehingga tujuan hardening tetap dipertahankan.
+
+Dengan demikian, konfigurasi firewall telah diperbaiki tanpa menghilangkan tujuan utama hardening sistem.
+
+---
