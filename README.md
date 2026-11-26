@@ -2991,34 +2991,20 @@ Skrip ini disimpan pada direktori `/root/` di node Magi-Casper.
 Jalankan perintah berikut:
 
 ```bash
-cat > /root/casper_fw.sh << 'EOF'
+cat > /root/casper_rules.sh << 'EOF'
 #!/bin/sh
-
-# Firewall Hardening Soal 11 (Casper)
-
-# Mengatur default policy INPUT
-iptables -P INPUT ACCEPT
-
-# Membersihkan chain INPUT
+# Rules Soal 11 - Casper Hantu
 iptables -F INPUT
-
-# 1. Mengizinkan loopback
 iptables -A INPUT -i lo -j ACCEPT
-
-# 2. Mengizinkan balasan koneksi keluar
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-# 3. Mengizinkan layanan MAGI pada TCP port 5000
 iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
-
-# 4. Memblokir seluruh ICMP Echo Request masuk
 iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
 
-echo "== Firewall Soal 11 Terpasang =="
-
-# Menampilkan aturan firewall aktif
+echo "== Rules Soal 11 Terpasang =="
 iptables -S
 EOF
+chmod +x /root/casper_rules.sh
+
 ```
 
 ### 2. Memberikan Hak Akses Eksekusi
