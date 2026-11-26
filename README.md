@@ -4324,3 +4324,164 @@ chmod +x /root/tokyo3_rules.sh
 - Rule pembatasan hanya berlaku untuk sumber `192.225.4.51` dan port TCP 22, 23, serta 3306.
 - Port 80 dan 8080 tetap diizinkan untuk seluruh alamat sumber karena rule penerimaannya tidak memiliki pembatasan alamat IP.
 - Counter `LOG` dan `REJECT` dapat digunakan sebagai bukti pengujian apabila log kernel tidak terlihat pada konsol container.
+
+
+# Soal 17: Sihir Hitam di Jalur Paket
+
+## 1. Analisis dan Masalah
+
+Router **Fuyutsuki**, yang berperan sebagai gateway Switch-Terminal, harus mengalihkan koneksi TCP dari **Magi-Casper** (`192.225.4.58`) yang ditujukan ke **Zeruel** (`192.225.4.82`) agar sampai ke **Pen-Pen** (`192.225.3.195`).
+
+Kebutuhan konfigurasi:
+
+1. Pengalihan dilakukan secara transparan menggunakan **Destination NAT (DNAT)** pada chain `PREROUTING` tabel `nat` di router Fuyutsuki.
+2. Magi-Casper tidak boleh menyadari adanya pengalihan. Paket balasan akan ditranslasikan kembali oleh connection tracking (*conntrack*) sehingga tetap tampak berasal dari Zeruel.
+3. Protokol ICMP tidak boleh dialihkan. Ping dari Magi-Casper ke Zeruel harus tetap menuju alamat Zeruel yang asli.
+
+**Solusi:** Terapkan rule DNAT yang hanya mencocokkan koneksi TCP dari IP Magi-Casper menuju IP Zeruel. Paket yang cocok akan diarahkan ke IP Pen-Pen, sedangkan paket ICMP tidak terpengaruh.
+
+### Informasi Node
+
+| Node | Alamat IP | Peran |
+|---|---|---|
+| Fuyutsuki | Router Switch-Terminal | Gateway dan pelaksana DNAT |
+| Magi-Casper | `192.225.4.58` | Sumber koneksi |
+| Zeruel | `192.225.4.82` | Tujuan awal koneksi |
+| Pen-Pen | `192.225.3.195` | Tujuan pengalihan |
+
+## 2. Langkah Konfigurasi
+
+Konfigurasi DNAT dilakukan pada router **Fuyutsuki**.
+
+### Memasang Rule DNAT
+
+```bash
+# Alihkan koneksi TCP dari Magi-Casper menuju Zeruel ke Pen-Pen
+iptables -t nat -A PREROUTING \
+  -p tcp \
+  -s 192.225.4.58 \
+  -d 192.225.4.82 \
+  -j DNAT --to-destination 192.225.3.195
+```
+
+Rule tersebut hanya berlaku untuk paket TCP dengan alamat sumber dan tujuan yang sesuai. Tidak ada rule untuk ICMP, sehingga paket ping tetap menuju Zeruel.
+
+### Verifikasi Rule NAT
+
+```bash
+iptables -t nat -S
+```
+
+## 3. Pengujian dan Validasi Hasil
+
+### Persiapan: Menyalakan Listener TCP
+
+Jalankan listener pada port 9000 di kedua node tujuan.
+
+**Pada Pen-Pen (`192.225.3.195`):**
+
+```bash
+nc -l -v -n -p 9000
+```
+
+**Pada Zeruel (`192.225.4.82`):**
+
+```bash
+nc -l -v -n -p 9000
+```
+
+Kedua listener digunakan untuk membuktikan bahwa koneksi dari Magi-Casper benar-benar diterima oleh Pen-Pen, bukan Zeruel.
+
+### Pengujian 1: Mengirim Pesan TCP dari Magi-Casper ke IP Zeruel
+
+Jalankan perintah berikut pada node **Magi-Casper**:
+
+```bash
+echo "Halo Zeruel dari Casper (Sihir Hitam Soal 17)" | nc -w 3 192.225.4.82 9000
+```
+
+**Hasil yang diharapkan:**
+
+1. **Pen-Pen:** Pesan berhasil diterima dan tampil secara utuh pada terminal listener.
+2. **Zeruel:** Tidak menerima koneksi atau data apa pun. Terminal listener tetap kosong.
+
+Hal ini membuktikan bahwa koneksi TCP yang ditujukan ke IP Zeruel telah dialihkan oleh Fuyutsuki ke Pen-Pen.
+
+<img width="410" height="127" alt="image" src="https://github.com/user-attachments/assets/997d9a2b-85d2-4c7c-b6ff-fa562deb131a" />
+<img width="348" height="92" alt="image" src="https://github.com/user-attachments/assets/4035bc62-52b8-4762-9c5d-39839fa71daf" />
+
+### Pengujian 2: Memeriksa Counter Rule DNAT
+
+Setelah pengiriman pesan TCP, jalankan perintah berikut pada router **Fuyutsuki**:
+
+```bash
+iptables -t nat -L PREROUTING -v -n
+```
+
+**Hasil yang diharapkan:** Counter pada rule target `DNAT`, khususnya kolom `pkts` dan `bytes`, mengalami peningkatan.
+
+Kenaikan counter membuktikan bahwa paket TCP dari Magi-Casper menuju Zeruel berhasil dicocokkan dan diproses oleh rule DNAT.
+
+<img width="750" height="138" alt="image" src="https://github.com/user-attachments/assets/07696ad9-311e-409c-b62a-b22ef52b9c91" />
+
+### Pengujian 3: Memastikan Ping ke Zeruel Tidak Dialihkan
+
+Jalankan perintah berikut pada node **Magi-Casper**:
+
+```bash
+ping -c 2 192.225.4.82
+```
+
+**Hasil yang diharapkan:** Ping berhasil menuju Zeruel asli dengan `0% packet loss`.
+
+Paket ICMP tidak dialihkan karena rule DNAT hanya mencocokkan protokol TCP (`-p tcp`).
+
+<img width="581" height="196" alt="image" src="https://github.com/user-attachments/assets/1d280086-3944-4457-9a5a-6a6201e08002" />
+
+
+## 4. Skrip Otomasi
+
+Simpan skrip berikut sebagai `/root/fuyutsuki_dnat.sh` pada router **Fuyutsuki**.
+
+Skrip menggunakan pemeriksaan `iptables -C` agar rule tidak ditambahkan berulang kali apabila skrip dijalankan lebih dari satu kali.
+
+```bash
+#!/bin/sh
+
+# Soal 17 - Sihir Hitam DNAT Casper ke Zeruel dialihkan ke Pen-Pen
+
+# Periksa apakah rule DNAT sudah tersedia.
+# Jika belum tersedia, tambahkan rule.
+iptables -t nat -C PREROUTING \
+  -p tcp \
+  -s 192.225.4.58 \
+  -d 192.225.4.82 \
+  -j DNAT --to-destination 192.225.3.195 2>/dev/null || \
+iptables -t nat -A PREROUTING \
+  -p tcp \
+  -s 192.225.4.58 \
+  -d 192.225.4.82 \
+  -j DNAT --to-destination 192.225.3.195
+
+echo "== DNAT Fuyutsuki Aktif =="
+
+# Tampilkan aturan NAT
+iptables -t nat -S
+```
+
+### Menjalankan Skrip
+
+```bash
+chmod +x /root/fuyutsuki_dnat.sh
+/root/fuyutsuki_dnat.sh
+```
+
+## 5. Catatan Teknis
+
+- DNAT dilakukan pada chain `PREROUTING` tabel `nat` agar alamat tujuan paket diubah sebelum proses routing menentukan jalur berikutnya.
+- Rule hanya mencocokkan protokol TCP, sumber `192.225.4.58`, dan tujuan `192.225.4.82`.
+- Paket ICMP tidak cocok dengan rule tersebut sehingga ping ke Zeruel tetap berjalan normal.
+- Conntrack menyimpan informasi translasi koneksi. Untuk koneksi yang berhasil melalui jalur routing dan NAT, paket balasan akan mengalami translasi balik secara otomatis.
+- Counter pada tabel `nat` umumnya dihitung berdasarkan paket pertama dari setiap koneksi baru, bukan seluruh paket dalam koneksi tersebut. Karena itu, gunakan koneksi baru saat menguji kenaikan counter.
+- Pastikan router Fuyutsuki memiliki jalur routing menuju jaringan Pen-Pen dan kebijakan forwarding mengizinkan paket yang telah ditranslasikan melewati router.
+- Jika koneksi TCP tidak sampai ke Pen-Pen, periksa konfigurasi IP forwarding, tabel routing, dan aturan firewall chain `FORWARD` pada Fuyutsuki.
