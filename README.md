@@ -2991,20 +2991,18 @@ Skrip ini disimpan pada direktori `/root/` di node Magi-Casper.
 Jalankan perintah berikut:
 
 ```bash
-cat > /root/casper_rules.sh << 'EOF'
+at > /root/casper_fw.sh << 'EOF'
 #!/bin/sh
-# Rules Soal 11 - Casper Hantu
+# Firewall Soal 11 - Casper Hantu
 iptables -F INPUT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -p tcp --dport 5000 -j ACCEPT
 iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
-
-echo "== Rules Soal 11 Terpasang =="
+echo "== Firewall Soal 11 Terpasang =="
 iptables -S
 EOF
-chmod +x /root/casper_rules.sh
-
+chmod +x /root/casper_fw.sh
 ```
 
 ### 2. Memberikan Hak Akses Eksekusi
