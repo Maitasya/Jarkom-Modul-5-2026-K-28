@@ -4880,3 +4880,362 @@ Hasil pengujian juga menunjukkan bahwa Zeruel tetap dapat berkomunikasi secara n
 Dengan demikian, tujuan isolasi Armisael berhasil dicapai tanpa perlu melakukan perubahan konfigurasi pada node yang dicurigai dan tanpa mengganggu konektivitas host lain.
 
 **Status akhir: Armisael terisolasi, Zeruel tetap beroperasi normal.**
+
+# Soal 20: Uji Kebakaran Geofront (Siap Dihancurkan, Siap Dibangun Lagi)
+
+## 1. Analisis dan Masalah
+
+Infrastruktur NERV harus memiliki ketahanan tinggi (*high availability* dan *disaster recovery*) serta mampu dibangun ulang secara cepat ketika terjadi insiden darurat atau bencana, yang dalam pengujian ini disimulasikan sebagai "kebakaran".
+
+### Kebutuhan dan Batasan Pengujian
+
+1. Memilih tiga node mandiri dengan minimal satu node router. Node yang dipilih adalah:
+   - **Router Shigeru**: Mewakili router utama zona sensitif.
+   - **Host Magi-Casper**: Mewakili host layanan MAGI.
+   - **Host Tokyo3-Core**: Mewakili host pusat komando.
+2. Pada setiap node, seluruh konfigurasi firewall disimpan menggunakan `iptables-save` ke file `/root/<nama>.rules`.
+3. Dilakukan simulasi kehancuran total dengan menghapus seluruh rule iptables pada tabel `filter` dan `nat`, serta menghapus rute yang ditambahkan secara manual.
+4. Konfigurasi dipulihkan menggunakan `iptables-restore` dan skrip `/root/<nama>.sh`.
+5. Proses pemulihan dijalankan **dua kali berturut-turut** untuk membuktikan prinsip **idempotensi**.
+
+   Indikator keberhasilan:
+   - Jumlah baris rule dari `iptables -S` harus sama antara pemulihan pertama dan kedua.
+   - Jumlah baris rule dari `iptables -t nat -S` harus sama antara pemulihan pertama dan kedua.
+   - Tidak terjadi duplikasi aturan maupun rute.
+   - Seluruh node kembali berfungsi normal seperti sebelum simulasi kehancuran.
+
+---
+
+## 2. Langkah Pengujian Node 1: Router Shigeru
+
+### A. Pencadangan Konfigurasi Awal
+
+Sebelum melakukan simulasi kehancuran, simpan seluruh konfigurasi firewall Router Shigeru ke dalam file backup.
+
+```bash
+iptables-save > /root/shigeru.rules
+```
+
+File `/root/shigeru.rules` digunakan sebagai sumber konfigurasi untuk proses pemulihan.
+
+### B. Simulasi Kehancuran (Flush Total Rule dan Rute)
+
+Lakukan penghapusan seluruh aturan firewall dan rute default yang digunakan oleh Router Shigeru.
+
+```bash
+# Hapus seluruh rule pada tabel filter
+iptables -F
+iptables -X
+
+# Hapus seluruh rule pada tabel nat
+iptables -t nat -F
+iptables -t nat -X
+
+# Kembalikan default policy menjadi ACCEPT
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# Hapus default route
+ip route del default 2>/dev/null
+
+# Verifikasi kondisi firewall setelah dihancurkan
+iptables -S
+iptables -t nat -S
+
+# Verifikasi tabel routing
+ip route
+```
+
+**Hasil Pengujian:**
+
+Seluruh rule firewall pada tabel `filter` dan `nat` berhasil dihapus. Rute default juga dihapus sehingga Router Shigeru berada dalam kondisi bersih atau kosong sesuai skenario simulasi kehancuran.
+
+<img width="657" height="557" alt="Screenshot 2026-11-26 190846" src="https://github.com/user-attachments/assets/eecd2fa2-e2ad-4583-942c-d787d285fb9d" />
+
+### C. Pemulihan Pertama dan Kedua (Uji Idempotensi)
+
+Lakukan pemulihan konfigurasi sebanyak dua kali berturut-turut untuk memastikan tidak terjadi duplikasi aturan.
+
+```bash
+# ==============================
+# PEMULIHAN PERTAMA
+# ==============================
+
+iptables-restore < /root/shigeru.rules
+
+sh /root/shigeru.sh 2>/dev/null || sh /root/shigeru_route.sh 2>/dev/null
+
+echo "=== PEMULIHAN 1 SHIGERU ==="
+echo "filter: $(iptables -S | wc -l)"
+echo "nat   : $(iptables -t nat -S | wc -l)"
+
+# ==============================
+# PEMULIHAN KEDUA
+# ==============================
+
+iptables-restore < /root/shigeru.rules
+
+sh /root/shigeru.sh 2>/dev/null || sh /root/shigeru_route.sh 2>/dev/null
+
+echo "=== PEMULIHAN 2 SHIGERU ==="
+echo "filter: $(iptables -S | wc -l)"
+echo "nat   : $(iptables -t nat -S | wc -l)"
+```
+
+**Hasil Pengujian:**
+
+Jumlah baris rule pada tabel `filter` dan `nat` antara pemulihan pertama dan kedua bernilai **sama persis**.
+
+Hal ini membuktikan bahwa konfigurasi firewall berhasil dipulihkan tanpa menghasilkan duplikasi aturan.
+
+<img width="680" height="387" alt="Screenshot 2026-11-26 190905" src="https://github.com/user-attachments/assets/19542ec7-43e7-4ba4-9f1f-575c3b1b4225" />
+<img width="680" height="385" alt="Screenshot 2026-11-26 190920" src="https://github.com/user-attachments/assets/c0633c8e-99c8-4898-96ff-87fe8bb150aa" />
+
+### D. Bukti Fungsionalitas Router Shigeru Pulih
+
+Setelah konfigurasi berhasil dipulihkan, lakukan pengujian konektivitas ke router tetangga Gendo.
+
+```bash
+ping -c 2 192.225.4.157
+```
+
+**Hasil Pengujian:**
+
+Router Shigeru berhasil melakukan ping ke router tetangga Gendo dengan hasil 0% packet loss.
+
+Hal ini membuktikan bahwa konektivitas jaringan Router Shigeru telah kembali normal setelah proses pemulihan.
+
+<img width="573" height="177" alt="Screenshot 2026-11-26 190935" src="https://github.com/user-attachments/assets/4d7bae21-4a34-4f10-8f6f-5edc80ce0e44" />
+
+---
+
+## 3. Langkah Pengujian Node 2: Host Magi-Casper
+
+### A. Pencadangan Konfigurasi Awal
+
+Simpan seluruh konfigurasi firewall pada Host Magi-Casper menggunakan perintah berikut.
+
+```bash
+iptables-save > /root/casper.rules
+```
+
+File `/root/casper.rules` akan digunakan sebagai sumber konfigurasi firewall saat proses pemulihan.
+
+### B. Simulasi Kehancuran (Flush Total)
+
+Hapus seluruh aturan firewall dan rute default pada Host Magi-Casper.
+
+```bash
+# Hapus seluruh rule pada tabel filter
+iptables -F
+iptables -X
+
+# Hapus seluruh rule pada tabel nat
+iptables -t nat -F
+iptables -t nat -X
+
+# Kembalikan default policy menjadi ACCEPT
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# Hapus default route
+ip route del default 2>/dev/null
+
+# Verifikasi kondisi firewall
+iptables -S
+iptables -t nat -S
+
+# Verifikasi tabel routing
+ip route
+```
+
+**Hasil Pengujian:**
+
+Seluruh aturan hardening firewall dan rute default pada Magi-Casper berhasil dihapus sehingga host berada dalam kondisi bersih sesuai skenario simulasi kehancuran.
+
+<img width="602" height="487" alt="Screenshot 2026-11-26 190955" src="https://github.com/user-attachments/assets/bb5e1b11-cfc1-496b-b11c-200d3ba4bc44" />
+
+### C. Pemulihan Pertama dan Kedua (Uji Idempotensi)
+
+Pulihkan konfigurasi firewall menggunakan file backup dan skrip konfigurasi Magi-Casper.
+
+```bash
+# ==============================
+# PEMULIHAN PERTAMA
+# ==============================
+
+iptables-restore < /root/casper.rules
+
+sh /root/magi-casper.sh 2>/dev/null
+
+echo "=== PEMULIHAN 1 CASPER ==="
+echo "filter: $(iptables -S | wc -l)"
+echo "nat   : $(iptables -t nat -S | wc -l)"
+
+# ==============================
+# PEMULIHAN KEDUA
+# ==============================
+
+iptables-restore < /root/casper.rules
+
+sh /root/magi-casper.sh 2>/dev/null
+
+echo "=== PEMULIHAN 2 CASPER ==="
+echo "filter: $(iptables -S | wc -l)"
+echo "nat   : $(iptables -t nat -S | wc -l)"
+```
+
+**Hasil Pengujian:**
+
+Jumlah baris rule iptables pada tabel `filter` dan `nat` menunjukkan nilai yang identik antara pemulihan pertama dan kedua.
+
+Dengan demikian, proses pemulihan konfigurasi firewall pada Magi-Casper terbukti tidak menghasilkan duplikasi aturan.
+
+<img width="615" height="457" alt="Screenshot 2026-11-26 191006" src="https://github.com/user-attachments/assets/02ad4bfb-a163-49b2-afe7-0ff7a766faf9" />
+<img width="612" height="467" alt="Screenshot 2026-11-26 191024" src="https://github.com/user-attachments/assets/bd6fdb71-6bea-4c34-8eae-416a20360a9a" />
+
+### D. Bukti Fungsionalitas Host Magi-Casper Pulih
+
+Lakukan pengujian konektivitas dari Magi-Casper menuju Balthasar dan internet.
+
+```bash
+# Uji koneksi ke Balthasar
+ping -c 2 192.225.4.59
+
+# Uji koneksi ke internet
+ping -c 2 8.8.8.8
+```
+
+**Hasil Pengujian:**
+
+Magi-Casper berhasil melakukan ping ke tetangga satu switch, yaitu Balthasar (`192.225.4.59`), serta ke internet melalui alamat `8.8.8.8`.
+
+Kedua pengujian menunjukkan bahwa konektivitas jaringan Magi-Casper telah kembali normal setelah proses pemulihan.
+
+<img width="572" height="347" alt="Screenshot 2026-11-26 191035" src="https://github.com/user-attachments/assets/a6fcf9fd-efeb-4149-a01c-e8f71a97e383" />
+
+
+---
+
+## 4. Langkah Pengujian Node 3: Host Tokyo3-Core
+
+### A. Pencadangan Konfigurasi Awal
+
+Simpan seluruh konfigurasi firewall pada Host Tokyo3-Core menggunakan perintah berikut.
+
+```bash
+iptables-save > /root/tokyo3.rules
+```
+
+File `/root/tokyo3.rules` digunakan sebagai sumber konfigurasi untuk proses pemulihan.
+
+### B. Simulasi Kehancuran (Flush Total)
+
+Hapus seluruh aturan firewall dan rute default pada Tokyo3-Core.
+
+```bash
+# Hapus seluruh rule pada tabel filter
+iptables -F
+iptables -X
+
+# Hapus seluruh rule pada tabel nat
+iptables -t nat -F
+iptables -t nat -X
+
+# Kembalikan default policy menjadi ACCEPT
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
+
+# Hapus default route
+ip route del default 2>/dev/null
+
+# Verifikasi kondisi firewall
+iptables -S
+iptables -t nat -S
+
+# Verifikasi tabel routing
+ip route
+```
+
+**Hasil Pengujian:**
+
+Seluruh aturan rate-limiting dan pencatatan aktivitas scan pada Tokyo3-Core berhasil dihapus. Rute default juga dihapus sehingga host berada dalam kondisi bersih sesuai simulasi kehancuran.
+
+<img width="622" height="466" alt="Screenshot 2026-11-26 191054" src="https://github.com/user-attachments/assets/1bbd5ce3-9572-44dc-99ad-bc29b0311508" />
+
+### C. Pemulihan Pertama dan Kedua (Uji Idempotensi)
+
+Lakukan pemulihan konfigurasi menggunakan file backup dan skrip Tokyo3-Core sebanyak dua kali berturut-turut.
+
+```bash
+# ==============================
+# PEMULIHAN PERTAMA
+# ==============================
+
+iptables-restore < /root/tokyo3.rules
+
+sh /root/tokyo3-core.sh 2>/dev/null
+
+echo "=== PEMULIHAN 1 TOKYO3-CORE ==="
+echo "filter: $(iptables -S | wc -l)"
+echo "nat   : $(iptables -t nat -S | wc -l)"
+
+# ==============================
+# PEMULIHAN KEDUA
+# ==============================
+
+iptables-restore < /root/tokyo3.rules
+
+sh /root/tokyo3-core.sh 2>/dev/null
+
+echo "=== PEMULIHAN 2 TOKYO3-CORE ==="
+echo "filter: $(iptables -S | wc -l)"
+echo "nat   : $(iptables -t nat -S | wc -l)"
+```
+
+**Hasil Pengujian:**
+
+Jumlah baris rule iptables pada tabel `filter` dan `nat` tetap konsisten antara pemulihan pertama dan kedua.
+
+Tidak ditemukan penambahan aturan secara berulang sehingga konfigurasi firewall Tokyo3-Core terbukti dapat dipulihkan tanpa duplikasi.
+
+<img width="621" height="417" alt="Screenshot 2026-11-26 191123" src="https://github.com/user-attachments/assets/1720f2bc-edb8-4093-9915-a495017e5b8c" />
+<img width="623" height="422" alt="Screenshot 2026-11-26 191137" src="https://github.com/user-attachments/assets/e5b37a3d-7674-4f2c-bc8f-f5f9ed20c275" />
+
+> Tempatkan screenshot hasil perbandingan jumlah baris rule pada pemulihan pertama dan kedua di Host Tokyo3-Core.
+
+### D. Bukti Fungsionalitas Host Tokyo3-Core Pulih
+
+Setelah konfigurasi berhasil dipulihkan, lakukan pengujian konektivitas menuju router gateway Gendo.
+
+```bash
+ping -c 2 192.225.4.105
+```
+
+**Hasil Pengujian:**
+
+Tokyo3-Core berhasil terhubung kembali ke router gateway Gendo dengan hasil 0% packet loss.
+
+Hal ini membuktikan bahwa konektivitas jaringan Tokyo3-Core telah pulih setelah proses pemulihan konfigurasi.
+
+<img width="572" height="186" alt="Screenshot 2026-11-26 191148" src="https://github.com/user-attachments/assets/e1ffff6a-0057-42a6-9c64-8918f0739380" />
+
+
+---
+
+## 5. Kesimpulan Babak Final
+
+Pengujian pada ketiga node, yaitu Router Shigeru, Host Magi-Casper, dan Host Tokyo3-Core, membuktikan bahwa prosedur pencadangan (*backup*) dan pemulihan (*restore*) konfigurasi firewall dapat diterapkan untuk mendukung ketahanan infrastruktur NERV.
+
+Melalui proses pencadangan menggunakan `iptables-save`, simulasi kehancuran menggunakan perintah `iptables -F` dan `iptables -t nat -F`, serta pemulihan menggunakan `iptables-restore` dan skrip konfigurasi masing-masing node, sistem berhasil dikembalikan ke kondisi operasional.
+
+Pengujian pemulihan sebanyak dua kali berturut-turut juga digunakan untuk membuktikan prinsip **idempotensi**. Jumlah baris rule pada tabel `filter` dan `nat` tetap sama antara pemulihan pertama dan kedua sehingga tidak terjadi penambahan aturan firewall secara berulang.
+
+Selain itu, pengujian konektivitas menunjukkan bahwa masing-masing node dapat kembali berkomunikasi dengan jaringan dan gateway sebagaimana mestinya.
+
+Dengan demikian, mekanisme pencadangan dan pemulihan konfigurasi menjadi bagian penting dalam strategi *disaster recovery* untuk memastikan infrastruktur NERV mampu menghadapi skenario kegagalan dan dibangun kembali dengan cepat.
+
+**Status Akhir: Backup berhasil, konfigurasi berhasil dipulihkan, idempotensi teruji, dan konektivitas jaringan kembali normal.**
