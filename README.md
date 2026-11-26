@@ -4155,3 +4155,172 @@ chmod +x /root/tokyo3_limit.sh
 - Rule pembatasan hanya mencocokkan paket ICMP `echo-request`; paket ICMP lainnya tidak terkena rule tersebut.
 - Paket `echo-reply` untuk ping yang diinisiasi keluar tidak dicocokkan oleh rule `echo-request` dan dapat diterima melalui rule `ESTABLISHED,RELATED`.
 - Counter dan hasil pengujian dapat berbeda sesuai kondisi jaringan dan waktu pengujian.
+
+
+# Soal 16: Pencuri yang Mencoba Setiap Pintu
+
+## 1. Analisis dan Masalah
+
+Node **Dummy-Plug** (`192.225.4.51`) mencoba memindai port sensitif pada pusat komando **Tokyo3-Core** (`192.225.4.106`), yaitu port TCP **22, 23, dan 3306**.
+
+Kebutuhan keamanan:
+
+1. Setiap percobaan koneksi TCP dari Dummy-Plug ke port 22, 23, dan 3306 harus dicatat dalam log sistem menggunakan awalan `SCAN-NERV:`.
+2. Koneksi ke port tersebut harus langsung ditolak menggunakan TCP Reset (`REJECT --reject-with tcp-reset`).
+3. Layanan normal pada port 80 dan 8080 harus tetap dapat diakses oleh Dummy-Plug maupun klien lainnya.
+4. Counter pada rule `LOG` digunakan sebagai bukti bahwa paket percobaan akses telah terdeteksi dan diproses, meskipun log kernel container tidak selalu ditampilkan pada konsol syslog.
+
+**Solusi:** Tambahkan rule `LOG` dan `REJECT` khusus untuk alamat IP Dummy-Plug dan port TCP yang dibatasi. Rule tersebut ditempatkan sebelum rule penerimaan layanan normal.
+
+## 2. Langkah Konfigurasi
+
+Konfigurasi dilakukan pada node **Tokyo3-Core** dengan tetap mempertahankan aturan pembatasan ping dari Soal 15.
+
+```bash
+# 1. Bersihkan chain INPUT
+iptables -F INPUT
+
+# 2. Izinkan interface loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 3. Rate limit ping (Soal 15)
+iptables -A INPUT -p icmp --icmp-type echo-request \
+  -m limit --limit 5/sec --limit-burst 5 -j ACCEPT
+
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 4. Izinkan paket balasan (ESTABLISHED, RELATED)
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 5. Catat percobaan akses Dummy-Plug ke port sensitif
+iptables -A INPUT -p tcp -s 192.225.4.51 \
+  -m multiport --dports 22,23,3306 \
+  -j LOG --log-prefix "SCAN-NERV: "
+
+# 6. Tolak koneksi menggunakan TCP Reset
+iptables -A INPUT -p tcp -s 192.225.4.51 \
+  -m multiport --dports 22,23,3306 \
+  -j REJECT --reject-with tcp-reset
+
+# 7. Izinkan akses normal ke port 80 dan 8080
+iptables -A INPUT -p tcp -m multiport --dports 80,8080 -j ACCEPT
+
+# 8. Policy default tetap ACCEPT
+iptables -P INPUT ACCEPT
+```
+
+### Verifikasi Aturan Firewall
+
+```bash
+iptables -L INPUT -v -n
+```
+## 3. Pengujian dan Validasi Hasil
+
+### Pengujian 1: Akses Port Terlarang dari Dummy-Plug
+
+Jalankan perintah berikut pada node **Dummy-Plug**:
+
+```bash
+nc -zv -w 2 192.225.4.106 22
+nc -zv -w 2 192.225.4.106 23
+nc -zv -w 2 192.225.4.106 3306
+```
+
+**Hasil yang diharapkan:** Seluruh percobaan koneksi ke port 22, 23, dan 3306 langsung ditolak (*Connection refused*) tanpa menunggu hingga timeout.
+
+<img width="660" height="128" alt="Screenshot 2026-11-26 182321" src="https://github.com/user-attachments/assets/47d05dcb-dab6-4779-8b96-63ca4a936557" />
+
+### Pengujian 2: Akses Port Layanan Normal
+
+Jalankan perintah berikut pada node **Dummy-Plug**:
+
+```bash
+echo "Tes 80" | nc -w 2 192.225.4.106 80
+echo "Tes 8080" | nc -w 2 192.225.4.106 8080
+```
+
+**Hasil yang diharapkan:**
+
+- Port 80 berhasil diakses dan memberikan respons `Welcome to Tokyo3-Core`.
+- Port 8080 berhasil diakses dan memberikan respons `syifa imutz`.
+
+Dengan demikian, pembatasan port sensitif tidak mengganggu layanan normal.
+
+<img width="558" height="95" alt="Screenshot 2026-11-26 182328" src="https://github.com/user-attachments/assets/e8c68610-e759-44f9-9cc7-ff68d44c3ca9" />
+
+### Pengujian 3: Memeriksa Counter Rule LOG dan REJECT
+
+Setelah percobaan koneksi dilakukan, jalankan perintah berikut pada **Tokyo3-Core**:
+
+```bash
+iptables -L INPUT -v -n
+```
+
+**Hasil yang diharapkan:** Counter pada rule `LOG` dan `REJECT` untuk TCP port 22, 23, dan 3306 bertambah. Contoh hasil pengamatan adalah **3 paket** dan **180 bytes** pada masing-masing rule.
+
+Hal ini membuktikan bahwa percobaan koneksi dari Dummy-Plug telah terdeteksi oleh rule `LOG`, kemudian ditolak oleh rule `REJECT`.
+
+<img width="956" height="331" alt="Screenshot 2026-11-26 182404" src="https://github.com/user-attachments/assets/c868de68-0ad5-4d71-b877-7686150b8d3e" />
+
+
+## 4. Skrip Otomasi
+
+Simpan skrip berikut sebagai `/root/tokyo3_rules.sh` pada node **Tokyo3-Core**.
+
+```bash
+#!/bin/sh
+
+# Aturan Tokyo3-Core (Soal 15 & Soal 16)
+
+# Bersihkan chain INPUT
+iptables -F INPUT
+
+# 1. Loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Rate Limit Ping (Soal 15)
+iptables -A INPUT -p icmp --icmp-type echo-request \
+  -m limit --limit 5/sec --limit-burst 5 -j ACCEPT
+
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 3. Established dan Related
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 4. Pencatatan Log Dummy-Plug (Soal 16)
+iptables -A INPUT -p tcp -s 192.225.4.51 \
+  -m multiport --dports 22,23,3306 \
+  -j LOG --log-prefix "SCAN-NERV: "
+
+# 5. Penolakan koneksi menggunakan TCP Reset
+iptables -A INPUT -p tcp -s 192.225.4.51 \
+  -m multiport --dports 22,23,3306 \
+  -j REJECT --reject-with tcp-reset
+
+# 6. Izinkan layanan port 80 dan 8080
+iptables -A INPUT -p tcp -m multiport --dports 80,8080 -j ACCEPT
+
+# 7. Policy default
+iptables -P INPUT ACCEPT
+
+echo "== Aturan Tokyo3-Core Soal 15 & 16 Aktif =="
+
+# Tampilkan aturan dan counter
+iptables -L INPUT -v -n
+```
+
+### Menjalankan Skrip
+
+```bash
+chmod +x /root/tokyo3_rules.sh
+/root/tokyo3_rules.sh
+```
+
+## 5. Catatan Teknis
+
+- Rule `LOG` harus ditempatkan sebelum rule `REJECT` agar paket tercatat sebelum koneksinya ditolak.
+- Target `LOG` tidak menghentikan pemrosesan paket. Paket akan melanjutkan pemeriksaan ke rule berikutnya.
+- Target `REJECT --reject-with tcp-reset` mengirimkan TCP Reset sehingga koneksi ditolak secara langsung.
+- Rule pembatasan hanya berlaku untuk sumber `192.225.4.51` dan port TCP 22, 23, serta 3306.
+- Port 80 dan 8080 tetap diizinkan untuk seluruh alamat sumber karena rule penerimaannya tidak memiliki pembatasan alamat IP.
+- Counter `LOG` dan `REJECT` dapat digunakan sebagai bukti pengujian apabila log kernel tidak terlihat pada konsol container.
