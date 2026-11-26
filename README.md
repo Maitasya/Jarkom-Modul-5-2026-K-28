@@ -3668,3 +3668,359 @@ Hasil akhir yang diharapkan:
 Dengan demikian, akses terhadap layanan sensitif telah dibatasi sesuai kebutuhan keamanan tanpa mengganggu lalu lintas jaringan lainnya.
 
 ---
+# Soal 14 — Jam Kunjungan Sang Pinguin
+
+## 1. Analisis dan Identifikasi Masalah
+
+### 1.1 Kondisi Awal
+
+Node Pen-Pen (`192.225.3.195`) menerapkan pembatasan akses terhadap ICMP echo-request (ping) dan TCP port 80 berdasarkan kategori node dan jadwal waktu tertentu.
+
+Pembatasan ini diterapkan menggunakan firewall `iptables` dengan modul `time`.
+
+### 1.2 Kebutuhan Keamanan
+
+Konfigurasi firewall harus memenuhi ketentuan berikut:
+
+| Kategori | Anggota | Jadwal Akses | Ketentuan |
+|---|---|---|---|
+| Pilot | Unit-01, Unit-02, Unit-00, Sachiel | Senin–Jumat, 08.00–16.00 WIB | Diizinkan |
+| Staf Geofront | Lilith dan Adam | Setiap hari, 17.00–23.00 WIB | Diizinkan |
+| Terduga Dummy System | Dummy-Plug, Entry-Plug, Spy | Setiap waktu | Selalu ditolak |
+| Lainnya | Node di luar kategori tersebut | Setiap waktu | Bebas tanpa batasan |
+
+Pembatasan berlaku untuk ICMP echo-request dan TCP port 80.
+
+### 1.3 Konversi Jadwal WIB ke UTC
+
+Modul `time` pada iptables membaca waktu sistem dalam format UTC. Oleh karena itu, jadwal WIB harus dikonversi dengan mengurangi 7 jam.
+
+| Kategori | Jadwal WIB | Jadwal UTC | Hari |
+|---|---|---|---|
+| Pilot | 08.00–16.00 | 01:00–09:00 | Senin–Jumat |
+| Staf Geofront | 17.00–23.00 | 10:00–16:00 | Setiap hari |
+
+### 1.4 Metode Pengujian
+
+Jam komputer tidak boleh diubah. Pengujian dilakukan dengan menyesuaikan variabel jadwal pada skrip firewall.
+
+Terdapat tiga tahap pengujian:
+
+1. **Kondisi 1 — Jadwal Cocok:** Jadwal disesuaikan dengan waktu sistem saat pengujian agar akses diizinkan.
+2. **Kondisi 2 — Jadwal Tidak Cocok:** Jadwal diubah ke rentang waktu di luar waktu pengujian untuk membuktikan bahwa akses ditolak.
+3. **Pemulihan:** Jadwal dikembalikan ke ketentuan resmi soal.
+
+---
+
+## 2. Konfigurasi Awal (Kondisi 1 — Jadwal Cocok)
+
+### 2.1 Kondisi Waktu Sistem
+
+Pada saat pengujian, jam sistem container menunjukkan pukul 10:xx UTC pada hari Kamis.
+
+Agar pengujian dapat dilakukan tanpa mengubah jam komputer, variabel jadwal Pilot dan Staf Geofront disesuaikan dengan waktu sistem saat itu.
+
+### 2.2 Lokasi Skrip
+
+Skrip firewall disimpan pada node Pen-Pen dengan lokasi:
+
+```text
+/root/penpen_rules.sh
+```
+
+### 2.3 Isi Skrip Firewall
+
+```bash
+#!/bin/sh
+
+# Variabel jadwal pengujian disesuaikan dengan jam sistem (UTC)
+
+PILOT_START="10:00"
+PILOT_STOP="12:00"
+PILOT_DAYS="Mon,Tue,Wed,Thu,Fri"
+
+STAF_START="10:00"
+STAF_STOP="12:00"
+
+# 1. Membersihkan rule lama
+iptables -F INPUT
+
+# 2. Mengizinkan loopback dan koneksi yang sudah terbentuk
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 3. Terduga Dummy System: Selalu ditolak
+
+DUMMY_IPS="192.225.4.50 192.225.4.51 192.225.4.102"
+
+for ip in $DUMMY_IPS; do
+    iptables -A INPUT -s "$ip" -p icmp --icmp-type echo-request -j DROP
+    iptables -A INPUT -s "$ip" -p tcp --dport 80 -j DROP
+done
+
+# 4. Kategori Pilot: Akses sesuai jadwal
+
+# Pilot - Subnet Switch-Cage
+iptables -A INPUT -s 192.225.4.64/29 \
+    -m time --timestart "$PILOT_START" --timestop "$PILOT_STOP" \
+    --weekdays "$PILOT_DAYS" \
+    -p icmp --icmp-type echo-request -j ACCEPT
+
+iptables -A INPUT -s 192.225.4.64/29 \
+    -m time --timestart "$PILOT_START" --timestop "$PILOT_STOP" \
+    --weekdays "$PILOT_DAYS" \
+    -p tcp --dport 80 -j ACCEPT
+
+# Pilot - Sachiel
+iptables -A INPUT -s 192.225.3.130 \
+    -m time --timestart "$PILOT_START" --timestop "$PILOT_STOP" \
+    --weekdays "$PILOT_DAYS" \
+    -p icmp --icmp-type echo-request -j ACCEPT
+
+iptables -A INPUT -s 192.225.3.130 \
+    -m time --timestart "$PILOT_START" --timestop "$PILOT_STOP" \
+    --weekdays "$PILOT_DAYS" \
+    -p tcp --dport 80 -j ACCEPT
+
+# Pilot - Tolak akses di luar jadwal
+iptables -A INPUT -s 192.225.4.64/29 \
+    -p icmp --icmp-type echo-request -j DROP
+
+iptables -A INPUT -s 192.225.4.64/29 \
+    -p tcp --dport 80 -j DROP
+
+iptables -A INPUT -s 192.225.3.130 \
+    -p icmp --icmp-type echo-request -j DROP
+
+iptables -A INPUT -s 192.225.3.130 \
+    -p tcp --dport 80 -j DROP
+
+# 5. Kategori Staf Geofront: Akses sesuai jadwal
+
+iptables -A INPUT -s 192.225.4.72/29 \
+    -m time --timestart "$STAF_START" --timestop "$STAF_STOP" \
+    -p icmp --icmp-type echo-request -j ACCEPT
+
+iptables -A INPUT -s 192.225.4.72/29 \
+    -m time --timestart "$STAF_START" --timestop "$STAF_STOP" \
+    -p tcp --dport 80 -j ACCEPT
+
+# Staf - Tolak akses di luar jadwal
+iptables -A INPUT -s 192.225.4.72/29 \
+    -p icmp --icmp-type echo-request -j DROP
+
+iptables -A INPUT -s 192.225.4.72/29 \
+    -p tcp --dport 80 -j DROP
+
+# 6. Mempertahankan lalu lintas lainnya
+iptables -P INPUT ACCEPT
+```
+
+### 2.4 Menjalankan Skrip
+
+Berikan izin eksekusi:
+
+```bash
+chmod +x /root/penpen_rules.sh
+```
+
+Jalankan skrip:
+
+```bash
+/root/penpen_rules.sh
+```
+
+Periksa rule yang aktif:
+
+```bash
+iptables -S
+```
+---
+
+## 3. Pengujian Kondisi 1 — Jadwal Cocok dengan Jam Sistem
+
+Pada kondisi ini, jadwal Pilot dan Staf Geofront mencakup pukul 10:xx UTC pada hari Kamis.
+
+### 3.1 Pengujian dari Unit-01 (Pilot)
+
+**Lokasi:** Unit-01
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.3.195
+```
+
+**Hasil yang diharapkan:** Ping berhasil dengan 0% packet loss.
+
+<img width="585" height="185" alt="Screenshot 2026-11-26 175848" src="https://github.com/user-attachments/assets/49f2987a-54d8-4416-af12-aaa08b6e5922" />
+
+
+### 3.2 Pengujian dari Lilith (Staf Geofront)
+
+**Lokasi:** Lilith
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.3.195
+```
+
+**Hasil yang diharapkan:** Ping berhasil dengan 0% packet loss.
+
+<img width="568" height="180" alt="Screenshot 2026-11-26 175857" src="https://github.com/user-attachments/assets/4b90e537-10d3-4f56-9c27-025eeb68a494" />
+
+
+### 3.3 Pengujian dari Spy (Terduga Dummy System)
+
+**Lokasi:** Spy
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.3.195
+```
+
+<img width="607" height="177" alt="Screenshot 2026-11-26 175930" src="https://github.com/user-attachments/assets/dc437f0b-e0e0-4369-9e4f-969325307921" />
+
+---
+
+## 4. Pengujian Kondisi 2 — Jadwal Tidak Cocok
+
+### 4.1 Mengubah Variabel Jadwal
+
+Jadwal pada skrip `/root/penpen_rules.sh` diubah menjadi pukul 01:00–02:00 UTC.
+
+Rentang waktu tersebut berada di luar waktu pengujian sistem saat ini, yaitu pukul 10:xx UTC.
+
+Jalankan perintah berikut pada Pen-Pen:
+
+```bash
+sed -i 's/PILOT_START="10:00"/PILOT_START="01:00"/' /root/penpen_rules.sh
+
+sed -i 's/PILOT_STOP="12:00"/PILOT_STOP="02:00"/' /root/penpen_rules.sh
+
+sed -i 's/STAF_START="10:00"/STAF_START="01:00"/' /root/penpen_rules.sh
+
+sed -i 's/STAF_STOP="12:00"/STAF_STOP="02:00"/' /root/penpen_rules.sh
+```
+
+### 4.2 Menerapkan Perubahan
+
+Jalankan kembali skrip:
+
+```bash
+/root/penpen_rules.sh
+```
+
+Verifikasi rule aktif:
+
+```bash
+iptables -S
+```
+### 4.3 Pengujian dari Unit-01 (Pilot — Di Luar Jadwal)
+
+**Lokasi:** Unit-01
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.3.195
+```
+
+**Hasil yang diharapkan:** Ping ditolak dengan 100% packet loss atau RTO.
+
+<img width="577" height="140" alt="Screenshot 2026-11-26 180037" src="https://github.com/user-attachments/assets/eafffa81-e8cf-4e73-8165-3ead3f229f12" />
+
+
+### 4.4 Pengujian dari Lilith (Staf — Di Luar Jadwal)
+
+**Lokasi:** Lilith
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.3.195
+```
+
+**Hasil yang diharapkan:** Ping ditolak dengan 100% packet loss atau RTO.
+
+<img width="597" height="142" alt="Screenshot 2026-11-26 180053" src="https://github.com/user-attachments/assets/bc1d7508-3bef-40af-8e7c-78e87f8f0e00" />
+
+
+### 4.5 Pengujian dari Spy (Terduga Dummy System)
+
+**Lokasi:** Spy
+
+Perintah:
+
+```bash
+ping -c 2 -W 2 192.225.3.195
+```
+
+**Hasil yang diharapkan:** Ping tetap ditolak dengan 100% packet loss atau RTO.
+
+<img width="597" height="146" alt="Screenshot 2026-11-26 180111" src="https://github.com/user-attachments/assets/6e843424-789b-4734-b0af-e0697899c2c9" />
+
+
+---
+
+## 5. Pemulihan ke Jadwal Resmi Soal
+
+Setelah pengujian Kondisi 1 dan Kondisi 2 selesai, jadwal pada skrip `/root/penpen_rules.sh` harus dikembalikan ke ketentuan resmi soal.
+
+### 5.1 Jadwal Resmi
+
+| Kategori | Jadwal WIB | Jadwal UTC | Hari |
+|---|---|---|---|
+| Pilot | 08.00–16.00 | 01:00–09:00 | Senin–Jumat |
+| Staf Geofront | 17.00–23.00 | 10:00–16:00 | Setiap hari |
+
+### 5.2 Mengembalikan Variabel Jadwal
+
+Jalankan perintah berikut pada Pen-Pen:
+
+```bash
+sed -i 's/PILOT_START="01:00"/PILOT_START="01:00"/' /root/penpen_rules.sh
+
+sed -i 's/PILOT_STOP="02:00"/PILOT_STOP="09:00"/' /root/penpen_rules.sh
+
+sed -i 's/STAF_START="01:00"/STAF_START="10:00"/' /root/penpen_rules.sh
+
+sed -i 's/STAF_STOP="02:00"/STAF_STOP="16:00"/' /root/penpen_rules.sh
+```
+
+### 5.3 Menerapkan Jadwal Resmi
+
+Jalankan kembali skrip:
+
+```bash
+/root/penpen_rules.sh
+```
+
+Periksa konfigurasi firewall:
+
+```bash
+iptables -S
+```
+
+Pastikan jadwal resmi telah dikembalikan dan rule firewall aktif.
+
+---
+
+## 6. Kesimpulan
+
+Konfigurasi firewall pada node Pen-Pen berhasil diterapkan untuk membatasi akses berdasarkan kategori node dan jadwal waktu tertentu.
+
+Hasil akhir yang diharapkan:
+
+1. Unit-01 sebagai anggota Pilot dapat melakukan ping ke Pen-Pen selama jadwal akses berlaku.
+2. Lilith sebagai Staf Geofront dapat melakukan ping ke Pen-Pen selama jadwal akses berlaku.
+3. Spy sebagai Terduga Dummy System selalu ditolak, baik pada Kondisi 1 maupun Kondisi 2.
+4. Unit-01 dan Lilith ditolak ketika berada di luar jadwal akses.
+5. Jadwal resmi dapat dipulihkan setelah pengujian selesai.
+6. Lalu lintas lain di luar pembatasan ICMP echo-request dan TCP port 80 tetap diizinkan.
+
+Dengan demikian, pembatasan akses berdasarkan kategori dan waktu telah berhasil diuji tanpa mengubah jam sistem komputer.
+
+---
