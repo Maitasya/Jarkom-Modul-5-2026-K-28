@@ -4024,3 +4024,134 @@ Hasil akhir yang diharapkan:
 Dengan demikian, pembatasan akses berdasarkan kategori dan waktu telah berhasil diuji tanpa mengubah jam sistem komputer.
 
 ---
+
+# Soal 15: Banjir Ping di Pusat Komando
+
+## 1. Analisis dan Masalah
+
+Node **Tokyo3-Core** (`192.225.4.106`) merupakan pusat komando yang berisiko mengalami gangguan akibat serangan banjir ping (*ICMP flood*).
+
+Kebutuhan pembatasan:
+
+1. Tokyo3-Core hanya menjawab maksimal **5 ping per detik**, menggunakan `-m limit --limit 5/sec --limit-burst 5`.
+2. Paket ping yang melebihi batas harus dibuang (*DROP*).
+3. Ping normal dengan laju di bawah batas harus tetap diterima.
+4. Pembatasan tidak boleh mengganggu ping yang diinisiasi keluar oleh Tokyo3-Core.
+
+**Solusi:** Terapkan *rate limit* pada paket ICMP `echo-request` di chain `INPUT`, lalu buang paket yang melampaui batas. Aturan loopback dan paket balasan untuk koneksi keluar juga tetap diizinkan.
+
+## 2. Langkah Konfigurasi
+
+Aturan firewall diterapkan pada node **Tokyo3-Core**.
+
+```bash
+# Bersihkan chain INPUT
+iptables -F INPUT
+
+# 1. Izinkan interface loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Rate limit ICMP echo-request maksimal 5 per detik
+iptables -A INPUT -p icmp --icmp-type echo-request \
+  -m limit --limit 5/sec --limit-burst 5 -j ACCEPT
+
+# 3. Buang paket ping yang melebihi kuota limit
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 4. Izinkan paket balasan untuk koneksi keluar
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 5. Izinkan layanan HTTP pada port 80 dan 8080
+iptables -A INPUT -p tcp -m multiport --dports 80,8080 -j ACCEPT
+
+# 6. Policy default tetap ACCEPT
+iptables -P INPUT ACCEPT
+```
+
+### Verifikasi Counter
+
+```bash
+iptables -L INPUT -v -n
+```
+## 3. Pengujian dan Validasi Hasil
+
+### Pengujian 1: Ping Banjir dari Lilith
+
+Jalankan perintah berikut pada node **Lilith**:
+
+```bash
+ping -f -c 50 192.225.4.106
+```
+
+**Hasil yang diharapkan:** Dari 50 paket yang dikirimkan secara rapat, sebagian besar paket dibuang sehingga terjadi *packet loss* yang signifikan.
+
+<img width="720" height="142" alt="Screenshot 2026-11-26 181517" src="https://github.com/user-attachments/assets/c1f0f756-64c4-4c68-a394-82bfa2c45623" />
+
+
+### Pengujian 2: Memeriksa Counter Rule DROP
+
+Setelah pengujian ping banjir, jalankan perintah berikut pada **Tokyo3-Core**:
+
+```bash
+iptables -L INPUT -v -n
+```
+
+**Hasil yang diharapkan:** Counter paket pada rule `DROP` untuk protokol ICMP meningkat. Contoh hasil pengamatan: **43 paket** dan **3612 bytes** dibuang karena melebihi batas.
+
+<img width="940" height="252" alt="Screenshot 2026-11-26 181604" src="https://github.com/user-attachments/assets/b4c71f07-9d95-4e11-9a4f-f6d585c36e3e" />
+
+
+### Pengujian 3: Ping Normal dengan Jeda 3 Detik
+
+Jalankan perintah berikut pada node **Lilith**:
+
+```bash
+ping -i 3 -c 4 192.225.4.106
+```
+
+**Hasil yang diharapkan:** Ping berhasil **100%** tanpa *packet loss* (`0% loss`), karena laju paket tidak melampaui batas 5 ping per detik.
+
+<img width="572" height="217" alt="Screenshot 2026-11-26 181652" src="https://github.com/user-attachments/assets/2577aab4-6441-416c-8aa7-57c7e4268083" />
+
+## 4. Skrip Otomasi
+
+Simpan skrip berikut sebagai `/root/tokyo3_limit.sh` pada node **Tokyo3-Core**.
+
+```bash
+#!/bin/sh
+
+# Rate Limit Ping Tokyo3-Core (Soal 15)
+iptables -F INPUT
+
+# 1. Loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 2. Rate limit maksimal 5 ping per detik
+iptables -A INPUT -p icmp --icmp-type echo-request \
+  -m limit --limit 5/sec --limit-burst 5 -j ACCEPT
+iptables -A INPUT -p icmp --icmp-type echo-request -j DROP
+
+# 3. Established dan service port
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -p tcp -m multiport --dports 80,8080 -j ACCEPT
+
+iptables -P INPUT ACCEPT
+
+echo "== Rate Limit Tokyo3-Core Aktif =="
+
+iptables -L INPUT -v -n
+```
+
+Jalankan skrip:
+
+```bash
+chmod +x /root/tokyo3_limit.sh
+/root/tokyo3_limit.sh
+```
+
+## 5. Catatan
+
+- Rule `DROP` untuk `echo-request` harus berada setelah rule `ACCEPT` yang menggunakan modul `limit`.
+- Rule pembatasan hanya mencocokkan paket ICMP `echo-request`; paket ICMP lainnya tidak terkena rule tersebut.
+- Paket `echo-reply` untuk ping yang diinisiasi keluar tidak dicocokkan oleh rule `echo-request` dan dapat diterima melalui rule `ESTABLISHED,RELATED`.
+- Counter dan hasil pengujian dapat berbeda sesuai kondisi jaringan dan waktu pengujian.
