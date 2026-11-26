@@ -3363,3 +3363,308 @@ Hasil akhir yang diharapkan:
 Dengan demikian, konfigurasi firewall telah diperbaiki tanpa menghilangkan tujuan utama hardening sistem.
 
 ---
+# Soal 13 — Brankas Balthasar
+
+## 1. Analisis dan Identifikasi Masalah
+
+### 1.1 Kondisi Awal
+
+Magi-Balthasar menyimpan seluruh data rahasia Geofront melalui layanan TCP port 5000 dan 5001.
+
+Namun, terlalu banyak pihak yang dapat mengakses port sensitif tersebut, termasuk node lain yang berada dalam satu switch.
+
+Kondisi ini menimbulkan risiko keamanan karena akses terhadap layanan sensitif belum dibatasi berdasarkan alamat IP sumber.
+
+### 1.2 Kebutuhan Keamanan
+
+Konfigurasi firewall harus memenuhi ketentuan berikut:
+
+1. Hanya Magi-Casper (`192.225.4.58`) dan seluruh anggota kategori Pilot yang diizinkan mengakses TCP port 5000 dan 5001.
+2. Anggota kategori Pilot terdiri dari:
+   - Unit-01
+   - Unit-02
+   - Unit-00
+   - Sachiel (`192.225.3.130`)
+3. Seluruh node selain yang diizinkan, seperti Lilith dan Magi-Melchior, harus ditolak seketika menggunakan TCP Reset.
+4. Lalu lintas selain TCP port 5000 dan 5001 tidak boleh terganggu.
+5. Magi-Balthasar harus tetap dapat melakukan ping ke internet (`8.8.8.8`) dan menerima balasan secara normal.
+
+### 1.3 Informasi Jaringan
+
+| Node | Alamat IP / Subnet | Keterangan |
+|---|---|---|
+| Magi-Casper | `192.225.4.58` | Diizinkan |
+| Unit-00 | `192.225.4.64/29` | Anggota Pilot |
+| Unit-01 | Termasuk subnet Pilot | Anggota Pilot |
+| Unit-02 | Termasuk subnet Pilot | Anggota Pilot |
+| Sachiel | `192.225.3.130` | Anggota Pilot |
+| Magi-Balthasar | `192.225.4.59` | Server tujuan |
+| Lilith | Sesuai konfigurasi jaringan | Tidak diizinkan |
+| Magi-Melchior | Sesuai konfigurasi jaringan | Tidak diizinkan |
+
+---
+
+## 2. Langkah Konfigurasi Firewall
+
+Konfigurasi firewall diterapkan pada node Magi-Balthasar dengan hak akses root.
+
+### 2.1 Membersihkan Chain INPUT
+
+Hapus seluruh rule lama pada chain INPUT.
+
+```bash
+iptables -F INPUT
+```
+
+### 2.2 Mengizinkan Interface Loopback
+
+Izinkan komunikasi internal melalui interface loopback.
+
+```bash
+iptables -A INPUT -i lo -j ACCEPT
+```
+
+### 2.3 Mengizinkan Paket Balasan
+
+Izinkan paket yang merupakan bagian dari koneksi yang sudah terbentuk atau berkaitan dengan koneksi tersebut.
+
+```bash
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+```
+
+Rule ini diperlukan agar koneksi yang diinisiasi oleh Magi-Balthasar, seperti ping ke internet, tetap dapat menerima balasan.
+
+### 2.4 Membuat Whitelist Magi-Casper
+
+Izinkan Magi-Casper mengakses TCP port 5000 dan 5001.
+
+```bash
+iptables -A INPUT -p tcp -s 192.225.4.58 -m multiport --dports 5000,5001 -j ACCEPT
+```
+
+### 2.5 Membuat Whitelist Subnet Pilot
+
+Izinkan seluruh anggota subnet Pilot `192.225.4.64/29` mengakses TCP port 5000 dan 5001.
+
+```bash
+iptables -A INPUT -p tcp -s 192.225.4.64/29 -m multiport --dports 5000,5001 -j ACCEPT
+```
+
+### 2.6 Membuat Whitelist Sachiel
+
+Izinkan Sachiel dengan alamat IP `192.225.3.130` mengakses TCP port 5000 dan 5001.
+
+```bash
+iptables -A INPUT -p tcp -s 192.225.3.130 -m multiport --dports 5000,5001 -j ACCEPT
+```
+
+### 2.7 Menolak Akses Selain Whitelist
+
+Tolak seluruh koneksi TCP menuju port 5000 dan 5001 yang tidak cocok dengan rule whitelist sebelumnya.
+
+```bash
+iptables -A INPUT -p tcp -m multiport --dports 5000,5001 -j REJECT --reject-with tcp-reset
+```
+
+Target `REJECT --reject-with tcp-reset` menyebabkan koneksi ditolak secara langsung menggunakan paket TCP Reset, bukan dibiarkan menunggu timeout.
+
+### 2.8 Mempertahankan Lalu Lintas Lain
+
+Atur default policy chain INPUT menjadi ACCEPT agar lalu lintas lain di luar port sensitif tidak terganggu.
+
+```bash
+iptables -P INPUT ACCEPT
+```
+
+### 2.9 Verifikasi Rule Firewall
+
+Periksa seluruh rule firewall yang aktif.
+
+```bash
+iptables -S
+```
+
+<img width="735" height="242" alt="Screenshot 2026-11-26 174820" src="https://github.com/user-attachments/assets/297d7c6d-fc55-467b-a027-67946f340da6" />
+
+---
+
+## 3. Pengujian dan Validasi Hasil
+
+Pengujian dilakukan untuk memastikan hanya node yang diizinkan dapat mengakses TCP port 5000 dan 5001, sedangkan node lain ditolak seketika.
+
+### 3.1 Pengujian dari Unit-01 (Kategori Pilot)
+
+**Lokasi:** Unit-01
+
+Pengujian port 5000:
+
+```bash
+nc -zv -w 2 192.225.4.59 5000
+```
+
+Pengujian port 5001:
+
+```bash
+nc -zv -w 2 192.225.4.59 5001
+```
+
+**Hasil yang diharapkan:**
+
+Kedua port berhasil tersambung dengan status open atau success.
+
+<img width="542" height="147" alt="Screenshot 2026-11-26 174834" src="https://github.com/user-attachments/assets/ec999365-be73-41ae-858a-3e28bdf8fff6" />
+
+
+### 3.2 Pengujian dari Lilith (Ditolak Seketika)
+
+**Lokasi:** Lilith
+
+Pengujian port 5000:
+
+```bash
+nc -zv -w 2 192.225.4.59 5000
+```
+
+Pengujian port 5001:
+
+```bash
+nc -zv -w 2 192.225.4.59 5001
+```
+
+**Hasil yang diharapkan:**
+
+Koneksi langsung ditolak dengan pesan `Connection refused` tanpa mengalami timeout.
+
+<img width="657" height="112" alt="Screenshot 2026-11-26 174843" src="https://github.com/user-attachments/assets/805103aa-b937-4603-bea8-f69ae954e986" />
+
+
+### 3.3 Pengujian dari Magi-Melchior (Satu Switch)
+
+**Lokasi:** Magi-Melchior
+
+Pengujian port 5000:
+
+```bash
+nc -zv -w 2 192.225.4.59 5000
+```
+
+Pengujian port 5001:
+
+```bash
+nc -zv -w 2 192.225.4.59 5001
+```
+
+**Hasil yang diharapkan:**
+
+Kedua koneksi langsung ditolak dengan pesan `Connection refused`.
+
+<img width="632" height="112" alt="Screenshot 2026-11-26 174857" src="https://github.com/user-attachments/assets/520e5dbe-6eea-460f-84ab-2ba4ca0cdbf3" />
+
+### 3.4 Pengujian Ping Internet dari Magi-Balthasar
+
+**Lokasi:** Magi-Balthasar
+
+Perintah:
+
+```bash
+ping -c 3 8.8.8.8
+```
+
+**Hasil yang diharapkan:**
+
+Ping berhasil dengan 0% packet loss.
+
+<img width="568" height="207" alt="Screenshot 2026-11-26 174917" src="https://github.com/user-attachments/assets/e28f0e67-db88-4342-8d26-c2acffd77ae5" />
+
+---
+
+## 4. Skrip Otomasi Firewall
+
+Untuk mempermudah penerapan konfigurasi firewall, dibuat skrip otomasi yang disimpan pada node Magi-Balthasar.
+
+**Lokasi skrip:**
+
+```text
+/root/balthasar_rules.sh
+```
+
+### 4.1 Isi Skrip
+
+```bash
+#!/bin/sh
+
+# Rules Soal 13 - Brankas Balthasar
+
+# 1. Membersihkan chain INPUT
+iptables -F INPUT
+
+# 2. Mengizinkan interface loopback
+iptables -A INPUT -i lo -j ACCEPT
+
+# 3. Mengizinkan paket balasan
+iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# 4. Whitelist Magi-Casper
+iptables -A INPUT -p tcp -s 192.225.4.58 -m multiport --dports 5000,5001 -j ACCEPT
+
+# 5. Whitelist subnet Pilot
+iptables -A INPUT -p tcp -s 192.225.4.64/29 -m multiport --dports 5000,5001 -j ACCEPT
+
+# 6. Whitelist Sachiel
+iptables -A INPUT -p tcp -s 192.225.3.130 -m multiport --dports 5000,5001 -j ACCEPT
+
+# 7. Menolak akses selain whitelist dengan TCP Reset
+iptables -A INPUT -p tcp -m multiport --dports 5000,5001 -j REJECT --reject-with tcp-reset
+
+# 8. Mempertahankan lalu lintas lainnya
+iptables -P INPUT ACCEPT
+
+# 9. Menampilkan hasil konfigurasi
+echo "== Rules Soal 13 Aktif =="
+
+iptables -S
+```
+
+### 4.2 Memberikan Izin Eksekusi
+
+```bash
+chmod +x /root/balthasar_rules.sh
+```
+
+### 4.3 Menjalankan Skrip
+
+```bash
+/root/balthasar_rules.sh
+```
+
+### 4.4 Verifikasi Hasil Skrip
+
+Periksa kembali konfigurasi firewall setelah skrip dijalankan.
+
+```bash
+iptables -S
+```
+
+Pastikan rule whitelist, rule REJECT TCP Reset, dan policy INPUT ACCEPT telah diterapkan.
+
+**Screenshot 6 — Eksekusi skrip otomasi**
+
+<img width="735" height="242" alt="Screenshot 2026-11-26 174820" src="https://github.com/user-attachments/assets/7e860709-d8c7-4a74-9067-c91b9f5a2f51" />
+
+---
+
+## 5. Kesimpulan
+
+Konfigurasi firewall pada Magi-Balthasar berhasil diterapkan untuk membatasi akses terhadap layanan TCP port 5000 dan 5001.
+
+Hasil akhir yang diharapkan:
+
+1. Magi-Casper dan seluruh anggota kategori Pilot dapat mengakses TCP port 5000 dan 5001.
+2. Lilith dan Magi-Melchior ditolak secara langsung menggunakan TCP Reset.
+3. Lalu lintas lain di luar port sensitif tetap dapat berjalan normal.
+4. Magi-Balthasar tetap dapat melakukan ping ke internet dan menerima balasan.
+5. Konfigurasi firewall dapat diterapkan kembali menggunakan skrip otomasi.
+
+Dengan demikian, akses terhadap layanan sensitif telah dibatasi sesuai kebutuhan keamanan tanpa mengganggu lalu lintas jaringan lainnya.
+
+---
