@@ -4646,3 +4646,237 @@ chmod +x /root/shigeru_gate.sh
 - Rule pengecualian ICMP harus diletakkan sebelum rule `DROP` agar ping dari subnet Terminal tidak ikut diblokir.
 - Rule `-i eth0 -j DROP` memblokir seluruh paket lain yang masuk dari arah Gendo, tanpa perlu mengetahui atau mendaftarkan subnet sumber satu per satu.
 - Policy default `ACCEPT` dipertahankan sesuai konfigurasi soal. Perlindungan terhadap traffic dari luar zona dilakukan secara khusus melalui rule `DROP` pada `eth0`.
+
+# Soal 19: Hukuman untuk Sang Pengkhianat
+
+## 1. Analisis dan Masalah
+
+Node Armisael (`192.225.4.83`) pada Switch-Monolith teridentifikasi sebagai penyusup yang harus diisolasi sepenuhnya dari seluruh jaringan Geofront.
+
+### Ketentuan dan Batasan
+
+1. Seluruh lalu lintas masuk dan keluar Armisael harus diblokir, mencakup:
+   - Akses ke gateway (router Shigeru).
+   - Komunikasi dengan tetangga satu switch, yaitu Zeruel (`192.225.4.82`).
+   - Akses ke jaringan lain dan internet.
+2. **Larangan mutlak:** Isolasi tidak boleh dilakukan di dalam node Armisael karena node pengkhianat tidak dapat dipercaya.
+3. Node Zeruel yang berada pada switch yang sama tidak boleh ikut terisolasi dan harus tetap dapat berkomunikasi secara normal.
+
+### Catatan Teknis Arsitektur Isolasi (Layer 2 vs Layer 3)
+
+#### A. Isolasi Layer 2 (Intra-Switch)
+
+Switch-Monolith hanya menampung dua host, yaitu Zeruel dan Armisael. Karena switch beroperasi pada Layer 2 tanpa dukungan ACL internal, isolasi komunikasi antara kedua host tidak dapat ditangani oleh router.
+
+Oleh karena itu, proteksi dipasang langsung pada host Zeruel menggunakan chain `INPUT` dan `OUTPUT` untuk menolak seluruh komunikasi dengan alamat IP Armisael.
+
+#### B. Isolasi Layer 3 (Inter-Subnet dan Internet)
+
+Seluruh lalu lintas dari Armisael yang ditujukan ke luar switch, seperti menuju Seele (`8.8.8.8`) di internet atau Lilith di Switch-Dogma, secara fisik dan logika harus melewati router Shigeru sebagai default gateway.
+
+Rule `DROP` pada chain `INPUT` dan `FORWARD` di router Shigeru digunakan untuk menjamin isolasi sehingga paket dari dan menuju Armisael dibuang pada hop pertama.
+
+---
+
+## 2. Langkah Konfigurasi
+
+### A. Konfigurasi pada Router Shigeru (Isolasi Gateway dan Lalu Lintas Luar)
+
+Jalankan perintah berikut pada router Shigeru:
+
+```bash
+# Blokir akses Armisael ke router gateway Shigeru sendiri
+iptables -I INPUT 1 -s 192.225.4.83 -j DROP
+
+# Blokir seluruh lalu lintas Armisael yang melintasi router
+# (ke internet dan subnet lain)
+iptables -I FORWARD 1 -s 192.225.4.83 -j DROP
+iptables -I FORWARD 2 -d 192.225.4.83 -j DROP
+
+# Verifikasi rule aktif
+iptables -L FORWARD -v -n
+```
+
+<img width="838" height="468" alt="Screenshot 2026-11-26 185044" src="https://github.com/user-attachments/assets/954ff779-0ca2-4a36-9633-3e76a89e51aa" />
+
+
+### B. Konfigurasi pada Node Zeruel (Proteksi Host Satu Switch)
+
+Jalankan perintah berikut pada Zeruel:
+
+```bash
+# Blokir paket masuk dari Armisael
+iptables -I INPUT 1 -s 192.225.4.83 -j DROP
+
+# Blokir paket keluar menuju Armisael
+iptables -I OUTPUT 1 -d 192.225.4.83 -j DROP
+
+# Verifikasi rule aktif
+iptables -S
+```
+
+<img width="687" height="258" alt="Screenshot 2026-11-26 185029" src="https://github.com/user-attachments/assets/2f12f50b-f725-435b-8786-d41a92e17937" />
+
+---
+
+## 3. Pengujian dan Validasi Hasil
+
+### Persiapan Listener Pengujian
+
+Sebelum melakukan pengujian konektivitas, jalankan listener Netcat pada masing-masing node berikut.
+
+**Pada Armisael:**
+
+```bash
+nc -l -p 9000 &
+```
+
+**Pada Zeruel:**
+
+```bash
+nc -l -p 9000 &
+```
+
+**Pada Lilith:**
+
+```bash
+nc -l -p 9000 &
+```
+
+### Pengujian 1: Seluruh Akses Masuk dan Keluar Armisael Harus Gagal
+
+Jalankan perintah pengujian berikut dari Armisael.
+
+```bash
+# 1. Uji koneksi ke Seele (8.8.8.8)
+ping -c 2 -W 2 8.8.8.8
+nc -zv -w 2 8.8.8.8 53
+
+# 2. Uji koneksi ke tetangga satu switch (Zeruel)
+ping -c 2 -W 2 192.225.4.82
+nc -zv -w 2 192.225.4.82 9000
+
+# 3. Uji koneksi ke Lilith (192.225.4.74)
+ping -c 2 -W 2 192.225.4.74
+nc -zv -w 2 192.225.4.74 9000
+```
+
+**Hasil Pengujian:**
+
+Seluruh pengujian menunjukkan bahwa Armisael tidak dapat berkomunikasi dengan node tujuan.
+
+- Seluruh pengujian `ping` menghasilkan 100% packet loss.
+- Seluruh koneksi Netcat (`nc`) gagal tersambung.
+- Armisael berhasil diisolasi dari jaringan luar maupun tetangga satu switch.
+- Proses isolasi dilakukan tanpa mengubah konfigurasi internal Armisael.
+
+<img width="772" height="762" alt="Screenshot 2026-11-26 185206" src="https://github.com/user-attachments/assets/674db15e-e610-4b67-b6ae-3e085a39a4c6" />
+
+### Pengujian 2: Akses dari Zeruel Tetap Berjalan Normal
+
+Selanjutnya, lakukan pengujian konektivitas dari Zeruel untuk memastikan bahwa isolasi Armisael tidak memengaruhi host lain dalam switch yang sama.
+
+Jalankan perintah berikut pada Zeruel:
+
+```bash
+# 1. Uji koneksi ke Seele (8.8.8.8)
+ping -c 2 8.8.8.8
+nc -zv -w 2 8.8.8.8 53
+
+# 2. Uji koneksi ke Lilith (192.225.4.74)
+ping -c 2 192.225.4.74
+nc -zv -w 2 192.225.4.74 9000
+```
+
+**Hasil Pengujian:**
+
+Seluruh pengujian konektivitas dari Zeruel berhasil berjalan normal.
+
+- Seluruh pengujian `ping` berhasil dengan 0% packet loss.
+- Koneksi Netcat (`nc`) berhasil tersambung ke port tujuan.
+- Zeruel tetap dapat berkomunikasi dengan jaringan internet maupun subnet lain.
+- Isolasi Armisael tidak memberikan dampak terhadap konektivitas Zeruel.
+
+<img width="563" height="492" alt="Screenshot 2026-11-26 185222" src="https://github.com/user-attachments/assets/6be07ffe-fa42-4820-9ee7-1de1db1575ce" />
+
+---
+
+## 4. Skrip Otomasi
+
+Untuk mempermudah penerapan aturan isolasi, konfigurasi dapat dijalankan secara otomatis menggunakan skrip shell pada masing-masing node.
+
+### A. Skrip pada Router Shigeru
+
+Buat file `/root/shigeru_isolasi.sh` dengan isi berikut:
+
+```bash
+#!/bin/sh
+
+# Isolasi Armisael di Shigeru (Soal 19)
+
+# Blokir akses menuju router Shigeru
+iptables -C INPUT -s 192.225.4.83 -j DROP 2>/dev/null || \
+iptables -I INPUT 1 -s 192.225.4.83 -j DROP
+
+# Blokir lalu lintas dari Armisael yang melewati router
+iptables -C FORWARD -s 192.225.4.83 -j DROP 2>/dev/null || \
+iptables -I FORWARD 1 -s 192.225.4.83 -j DROP
+
+# Blokir lalu lintas menuju Armisael yang melewati router
+iptables -C FORWARD -d 192.225.4.83 -j DROP 2>/dev/null || \
+iptables -I FORWARD 2 -d 192.225.4.83 -j DROP
+
+echo "== Isolasi Armisael di Shigeru Aktif =="
+```
+
+### B. Skrip pada Node Zeruel
+
+Buat file `/root/zeruel_protect.sh` dengan isi berikut:
+
+```bash
+#!/bin/sh
+
+# Isolasi Armisael di Zeruel (Soal 19)
+
+# Blokir paket masuk dari Armisael
+iptables -C INPUT -s 192.225.4.83 -j DROP 2>/dev/null || \
+iptables -I INPUT 1 -s 192.225.4.83 -j DROP
+
+# Blokir paket keluar menuju Armisael
+iptables -C OUTPUT -d 192.225.4.83 -j DROP 2>/dev/null || \
+iptables -I OUTPUT 1 -d 192.225.4.83 -j DROP
+
+echo "== Proteksi Armisael di Zeruel Aktif =="
+```
+
+### C. Menjalankan Skrip
+
+Berikan izin eksekusi pada masing-masing skrip.
+
+**Pada Shigeru:**
+
+```bash
+chmod +x /root/shigeru_isolasi.sh
+/root/shigeru_isolasi.sh
+```
+
+**Pada Zeruel:**
+
+```bash
+chmod +x /root/zeruel_protect.sh
+/root/zeruel_protect.sh
+```
+
+---
+
+## 5. Kesimpulan
+
+Berdasarkan konfigurasi dan pengujian yang dilakukan, isolasi terhadap node Armisael (`192.225.4.83`) berhasil diterapkan dengan memanfaatkan kombinasi firewall Layer 2 dan Layer 3.
+
+Penerapan aturan firewall pada router Shigeru menggunakan chain `INPUT` dan `FORWARD` berhasil membatasi akses Armisael menuju gateway, internet, serta jaringan lain. Sementara itu, aturan firewall pada Zeruel menggunakan chain `INPUT` dan `OUTPUT` untuk memblokir komunikasi langsung antara kedua host yang berada dalam satu switch.
+
+Hasil pengujian juga menunjukkan bahwa Zeruel tetap dapat berkomunikasi secara normal dengan jaringan internet maupun node lain.
+
+Dengan demikian, tujuan isolasi Armisael berhasil dicapai tanpa perlu melakukan perubahan konfigurasi pada node yang dicurigai dan tanpa mengganggu konektivitas host lain.
+
+**Status akhir: Armisael terisolasi, Zeruel tetap beroperasi normal.**
