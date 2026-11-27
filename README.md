@@ -2195,6 +2195,8 @@ chmod +x /root/perbaikan_misato.sh
 /root/perbaikan_misato.sh
 ```
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/8b31078f-c951-46ae-af2e-106de281397e" />
+
 **3. Membuat script perbaikan Gendo**
 
 Pada Console Gendo:
@@ -2252,6 +2254,8 @@ sysctl net.ipv4.ip_forward
 echo "Perbaikan Gendo selesai."
 EOF
 ```
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/b187d7bd-66d3-4175-b896-c9fe090e0602" />
 
 Jalankan:
 
@@ -2316,15 +2320,9 @@ Pada Gendo, pastikan aturan MASQUERADE untuk jaringan internal terlihat pada POS
 
 **Bukti pengerjaan menggunakan script:**
 
-[Tempel screenshot script cek_nat_soal10.sh pada Misato]
-
-[Tempel screenshot script cek_nat_soal10.sh pada Gendo]
-
-[Tempel screenshot script perbaikan_misato.sh]
-
-[Tempel screenshot script perbaikan_gendo.sh]
-
-[Tempel screenshot script test_soal10.sh dan hasil ping Unit-01]
+ test_soal10.sh dan hasil ping Unit-01
+ 
+ <img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/2c5c58fe-ab60-4b92-a7a2-61449c382655" />
 
 #### Kesimpulan
 
