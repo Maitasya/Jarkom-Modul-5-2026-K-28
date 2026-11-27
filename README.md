@@ -2057,6 +2057,8 @@ iptables -t nat -D POSTROUTING -s 192.225.4.64/29 -o eth0 -j RETURN
 
 Interface `eth0` disesuaikan dengan interface WAN menuju NAT1.
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/a5114f38-3022-4f53-8b7e-015711096690" />
+
 **8. Memastikan aturan MASQUERADE pada Gendo**
 
 ```bash
@@ -2069,6 +2071,11 @@ iptables -t nat -C POSTROUTING -s 192.225.0.0/16 ! -d 192.225.0.0/16 -o eth0 -j 
 sysctl -w net.ipv4.ip_forward=1
 ```
 
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/4572aa7a-5830-4315-96ba-b8ccda5bec9a" />
+
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/7c4c69f5-fe7d-4672-8d01-308129fedc65" />
+
+
 **10. Menguji hasil perbaikan dari Unit-01**
 
 ```bash
@@ -2077,17 +2084,10 @@ ping -c 4 192.225.4.74
 ping -c 4 -W 2 8.8.8.8
 ```
 
+<img width="958" height="320" alt="image" src="https://github.com/user-attachments/assets/22461df9-ef29-46a0-b646-646a2d3b60cc" />
+
+
 Pengujian ini memastikan koneksi ke gateway, Lilith, dan internet kembali berjalan.
-
-**Bukti pengerjaan manual:**
-
-[Tempel screenshot menjalankan sabotase pada Misato dan Gendo]
-
-[Tempel screenshot pemeriksaan aturan NAT pada Misato dan Gendo]
-
-[Tempel screenshot perbaikan aturan NAT secara manual]
-
-[Tempel screenshot pengujian Unit-01 sebelum dan setelah perbaikan]
 
 #### Pengerjaan Menggunakan Script
 
