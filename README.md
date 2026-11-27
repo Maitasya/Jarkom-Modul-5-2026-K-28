@@ -1140,7 +1140,7 @@ Jika konfigurasi tidak bertahan setelah restart, konfigurasi jaringan dapat dima
 
 **Bukti:**
 
-<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/c33e461e-7d89-439f-8314-798514a84b21" />
+<img width="960" height="516" alt="image" src="https://github.com/user-attachments/assets/b68c01e2-5e8c-4833-8d85-faf188c01360" />
 
 #### Kesimpulan
 
